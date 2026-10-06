@@ -1,7 +1,9 @@
 package com.vaultt.feature.documents
 
 import android.content.Context
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -17,6 +19,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vaultt.domain.model.VaultObject
+import com.vaultt.core.security.rememberSecurityManager
 import com.vaultt.feature.photos.shareBytes
 import kotlinx.coroutines.launch
 import java.io.File
@@ -26,22 +29,46 @@ import java.io.FileOutputStream
 @Composable
 fun DocumentsScreen(
     onBack: () -> Unit,
-    viewModel: DocumentsViewModel = hiltViewModel()
+    viewModel: DocumentsViewModel = hiltViewModel(),
+    onDeleteRequest: (android.content.IntentSender) -> Unit
 ) {
     val documents by viewModel.documents.collectAsState()
     val isImporting by viewModel.isImporting.collectAsState()
+    val duplicates by viewModel.duplicateAlert.collectAsState()
     var selectedDoc by remember { mutableStateOf<VaultObject?>(null) }
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
+    val securityManager = rememberSecurityManager()
 
     val docPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents(),
         onResult = { uris ->
+            securityManager.endExternalActivity()
             if (uris.isNotEmpty()) {
                 viewModel.importDocuments(uris)
             }
         }
     )
+
+    LaunchedEffect(Unit) {
+        viewModel.deleteIntentSender.collect {
+            onDeleteRequest(it)
+        }
+    }
+
+    if (duplicates.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { viewModel.clearDuplicateAlert() },
+            title = { Text("Duplicates Detected") },
+            text = { Text("${duplicates.size} documents are already in your vault. Skip them?") },
+            confirmButton = {
+                Button(onClick = { viewModel.clearDuplicateAlert() }) { Text("Skip") }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.continueImportingDuplicates() }) { Text("Import Anyway") }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -60,7 +87,10 @@ fun DocumentsScreen(
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { docPickerLauncher.launch("*/*") },
+                onClick = {
+                    securityManager.beginExternalActivity()
+                    docPickerLauncher.launch("*/*")
+                },
                 containerColor = MaterialTheme.colorScheme.primary
             ) {
                 Icon(Icons.Default.Add, contentDescription = "Import Document")
@@ -82,7 +112,7 @@ fun DocumentsScreen(
                             onClick = {
                                 coroutineScope.launch {
                                     viewModel.getDocumentData(doc.id).onSuccess { bytes ->
-                                        openDocument(context, bytes, doc.name)
+                                        openDocument(context, bytes, doc.name, doc.mimeType)
                                     }
                                 }
                             },
@@ -129,7 +159,7 @@ fun DocumentsScreen(
     }
 }
 
-fun openDocument(context: Context, bytes: ByteArray, filename: String) {
+fun openDocument(context: Context, bytes: ByteArray, filename: String, mimeType: String?) {
     val tempFile = File(context.cacheDir, filename)
     FileOutputStream(tempFile).use { it.write(bytes) }
     val uri = androidx.core.content.FileProvider.getUriForFile(
@@ -139,7 +169,7 @@ fun openDocument(context: Context, bytes: ByteArray, filename: String) {
     )
     
     val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-        setDataAndType(uri, context.contentResolver.getType(uri) ?: "*/*")
+        setDataAndType(uri, mimeType ?: context.contentResolver.getType(uri) ?: "*/*")
         addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
     context.startActivity(android.content.Intent.createChooser(intent, "Open Document"))

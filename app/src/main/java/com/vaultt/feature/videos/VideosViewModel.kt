@@ -57,12 +57,6 @@ class VideosViewModel @Inject constructor(
                 _duplicateAlert.value = duplicates
             }
 
-            if (successfullyImportedUris.isNotEmpty()) {
-                repository.getDeleteRequestIntentSender(successfullyImportedUris)?.let {
-                    _deleteIntentSender.emit(it)
-                }
-            }
-            
             _isImporting.value = false
         }
     }

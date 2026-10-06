@@ -23,7 +23,7 @@ object SecurityModule {
 
     @Provides
     @Singleton
-    fun provideSecurityManager(vaultPrefs: VaultPrefs): SecurityManager {
-        return SecurityManager(vaultPrefs)
+    fun provideSecurityManager(): SecurityManager {
+        return SecurityManager()
     }
 }

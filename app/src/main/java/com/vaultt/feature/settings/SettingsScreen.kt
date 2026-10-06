@@ -3,12 +3,15 @@ package com.vaultt.feature.settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.launch
@@ -22,7 +25,6 @@ fun SettingsScreen(
     var showPinDialog by remember { mutableStateOf(false) }
     var showDestroyDialog by remember { mutableStateOf(false) }
     var showStatsDialog by remember { mutableStateOf(false) }
-    var showTimeoutDialog by remember { mutableStateOf(false) }
     
     val stats by viewModel.storageStats.collectAsState()
 
@@ -69,13 +71,6 @@ fun SettingsScreen(
                 modifier = Modifier.clickable { showPinDialog = true }
             )
 
-            ListItem(
-                headlineContent = { Text("Auto-Lock Timeout") },
-                supportingContent = { Text(formatTimeout(viewModel.getAutoLockTimeout())) },
-                leadingContent = { Icon(Icons.Default.Timer, contentDescription = null) },
-                modifier = Modifier.clickable { showTimeoutDialog = true }
-            )
-
             HorizontalDivider(modifier = Modifier.padding(vertical = 8.dp))
 
             SettingsSectionHeader("Vault")
@@ -112,21 +107,8 @@ fun SettingsScreen(
     if (showPinDialog) {
         ChangePinDialog(
             onDismiss = { showPinDialog = false },
-            onSubmit = { old, new -> 
-                if (viewModel.changePin(old, new)) {
-                    showPinDialog = false
-                }
-            }
-        )
-    }
-
-    if (showTimeoutDialog) {
-        TimeoutPickerDialog(
-            currentTimeout = viewModel.getAutoLockTimeout(),
-            onDismiss = { showTimeoutDialog = false },
-            onSelect = { 
-                viewModel.setAutoLockTimeout(it)
-                showTimeoutDialog = false
+            onPinChanged = { old, new -> 
+                viewModel.changePin(old, new)
             }
         )
     }
@@ -146,7 +128,7 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(onClick = { 
                     viewModel.destroyVault { 
-                        // Navigation handled by MainActivity observing setupComplete
+                        // Navigation handled by setup status observation
                     }
                     showDestroyDialog = false
                 }) {
@@ -163,51 +145,52 @@ fun SettingsScreen(
 }
 
 @Composable
-fun ChangePinDialog(onDismiss: () -> Unit, onSubmit: (String, String) -> Unit) {
+fun ChangePinDialog(onDismiss: () -> Unit, onPinChanged: (String, String) -> Boolean) {
     var oldPin by remember { mutableStateOf("") }
     var newPin by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
     
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Change PIN") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(value = oldPin, onValueChange = { oldPin = it }, label = { Text("Current PIN") })
-                OutlinedTextField(value = newPin, onValueChange = { newPin = it }, label = { Text("New PIN") })
+                OutlinedTextField(
+                    value = oldPin,
+                    onValueChange = { oldPin = it; error = null },
+                    label = { Text("Current PIN") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    visualTransformation = PasswordVisualTransformation(),
+                    isError = error != null
+                )
+                OutlinedTextField(
+                    value = newPin,
+                    onValueChange = { newPin = it; error = null },
+                    label = { Text("New 4-6 Digit PIN") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    visualTransformation = PasswordVisualTransformation(),
+                    isError = error != null
+                )
+                if (error != null) {
+                    Text(text = error!!, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
             }
         },
         confirmButton = {
-            Button(onClick = { onSubmit(oldPin, newPin) }, enabled = oldPin.isNotEmpty() && newPin.length >= 4) { Text("Update") }
+            Button(
+                onClick = { 
+                    if (onPinChanged(oldPin, newPin)) {
+                        onDismiss()
+                    } else {
+                        error = "Current PIN is incorrect"
+                    }
+                }, 
+                enabled = oldPin.isNotEmpty() && newPin.length >= 4
+            ) { Text("Update") }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }
         }
-    )
-}
-
-@Composable
-fun TimeoutPickerDialog(currentTimeout: Int, onDismiss: () -> Unit, onSelect: (Int) -> Unit) {
-    val options = listOf(0, 15, 30, 60, 300)
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("Auto-Lock Timeout") },
-        text = {
-            Column {
-                options.forEach { timeout ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onSelect(timeout) }
-                            .padding(16.dp)
-                    ) {
-                        RadioButton(selected = currentTimeout == timeout, onClick = null)
-                        Spacer(modifier = Modifier.width(16.dp))
-                        Text(formatTimeout(timeout))
-                    }
-                }
-            }
-        },
-        confirmButton = {}
     )
 }
 
@@ -244,15 +227,6 @@ fun SettingsSectionHeader(title: String) {
         color = MaterialTheme.colorScheme.primary,
         modifier = Modifier.padding(start = 16.dp, top = 24.dp, bottom = 8.dp)
     )
-}
-
-private fun formatTimeout(seconds: Int): String {
-    return when (seconds) {
-        0 -> "Immediately"
-        60 -> "1 minute"
-        300 -> "5 minutes"
-        else -> "$seconds seconds"
-    }
 }
 
 private fun formatSize(bytes: Long): String {

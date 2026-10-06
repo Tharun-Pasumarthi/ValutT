@@ -57,13 +57,6 @@ class DocumentsViewModel @Inject constructor(
                 _duplicateAlert.value = duplicates
             }
 
-            if (successfullyImportedUris.isNotEmpty()) {
-                val intentSender = repository.getDeleteRequestIntentSender(successfullyImportedUris)
-                if (intentSender != null) {
-                    _deleteIntentSender.emit(intentSender)
-                }
-            }
-            
             _isImporting.value = false
         }
     }

@@ -34,6 +34,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vaultt.feature.photos.PhotosViewModel
+import com.vaultt.core.security.rememberSecurityManager
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.util.concurrent.ExecutorService
@@ -45,7 +49,10 @@ fun CameraScreen(
     viewModel: PhotosViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val securityManager = rememberSecurityManager()
     val lifecycleOwner = LocalLifecycleOwner.current
+    val coroutineScope = rememberCoroutineScope()
+    
     val previewView = remember { PreviewView(context) }
     val imageCapture = remember { ImageCapture.Builder().build() }
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
@@ -55,15 +62,21 @@ fun CameraScreen(
     
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
-    ) { hasPermission = it }
+    ) {
+        securityManager.endExternalActivity()
+        hasPermission = it
+    }
 
     LaunchedEffect(Unit) {
+        securityManager.beginExternalActivity()
         permissionLauncher.launch(Manifest.permission.CAMERA)
     }
 
     if (hasPermission) {
         LaunchedEffect(lensFacing) {
-            val cameraProvider = ProcessCameraProvider.getInstance(context).get()
+            val cameraProvider = withContext(Dispatchers.IO) {
+                ProcessCameraProvider.getInstance(context).get()
+            }
             val preview = Preview.Builder().build().also {
                 it.setSurfaceProvider(previewView.surfaceProvider)
             }
@@ -112,8 +125,10 @@ fun CameraScreen(
             FloatingActionButton(
                 onClick = {
                     captureImage(imageCapture, cameraExecutor, lensFacing) { bytes ->
-                        viewModel.importPhotosFromBytes(bytes, "captured_${System.currentTimeMillis()}.jpg")
-                        onBack()
+                        coroutineScope.launch {
+                            viewModel.importPhotosFromBytes(bytes, "captured_${System.currentTimeMillis()}.jpg")
+                            onBack()
+                        }
                     }
                 },
                 modifier = Modifier
@@ -143,7 +158,6 @@ private fun captureImage(
             val matrix = Matrix()
             matrix.postRotate(image.imageInfo.rotationDegrees.toFloat())
             
-            // Mirror front camera
             if (lensFacing == CameraSelector.LENS_FACING_FRONT) {
                 matrix.preScale(-1f, 1f)
             }

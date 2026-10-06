@@ -4,6 +4,7 @@ data class VaultObject(
     val id: String,
     val name: String,
     val type: VaultObjectType,
+    val mimeType: String? = null,
     val size: Long,
     val createdAt: Long,
     val modifiedAt: Long,

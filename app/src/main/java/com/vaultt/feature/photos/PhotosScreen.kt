@@ -23,6 +23,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vaultt.domain.model.VaultObject
+import com.vaultt.core.security.rememberSecurityManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -33,11 +34,13 @@ fun PhotosScreen(
 ) {
     val photos by viewModel.photos.collectAsState()
     val isImporting by viewModel.isImporting.collectAsState()
+    val securityManager = rememberSecurityManager()
     val duplicates by viewModel.duplicateAlert.collectAsState()
 
     val photoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(),
         onResult = { uris ->
+            securityManager.endExternalActivity()
             if (uris.isNotEmpty()) {
                 viewModel.importPhotos(uris)
             }
@@ -82,6 +85,7 @@ fun PhotosScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
+                    securityManager.beginExternalActivity()
                     photoPickerLauncher.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
                     )

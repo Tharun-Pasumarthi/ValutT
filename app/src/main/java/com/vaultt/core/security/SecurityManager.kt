@@ -1,6 +1,14 @@
 package com.vaultt.core.security
 
-import android.os.SystemClock
+import android.os.Handler
+import android.os.Looper
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -8,90 +16,62 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class SecurityManager @Inject constructor(
-    private val vaultPrefs: VaultPrefs
-) {
-
+class SecurityManager @Inject constructor() {
     private val _isLocked = MutableStateFlow(true)
     val isLocked: StateFlow<Boolean> = _isLocked.asStateFlow()
-
-    private var lastActiveTime: Long = SystemClock.elapsedRealtime()
-    private var backgroundTimestamp: Long = 0
+    private var externalActivityInProgress = false
+    private val lifecycleHandler by lazy { Handler(Looper.getMainLooper()) }
+    private val delayedLock = Runnable {
+        if (!externalActivityInProgress) {
+            lock()
+        }
+    }
 
     fun lock() {
         _isLocked.value = true
-        backgroundTimestamp = 0
     }
 
     fun unlock() {
         _isLocked.value = false
-        backgroundTimestamp = 0
-        updateActivity()
     }
 
-    fun updateActivity() {
-        lastActiveTime = SystemClock.elapsedRealtime()
+    fun setTemporaryPause(active: Boolean) {
+        externalActivityInProgress = active
     }
 
-    /**
-     * Called when the app goes into the background.
-     */
-    fun onAppBackgrounded() {
-        if (_isLocked.value) return
-        backgroundTimestamp = SystemClock.elapsedRealtime()
-        
-        // If timeout is "Immediately" (0 seconds)
-        if (vaultPrefs.getAutoLockTimeout() == 0) {
-            lock()
+    fun beginExternalActivity() {
+        lifecycleHandler.removeCallbacks(delayedLock)
+        externalActivityInProgress = true
+    }
+
+    fun endExternalActivity() {
+        externalActivityInProgress = false
+    }
+
+    fun onAppPaused() {
+        if (!_isLocked.value && !externalActivityInProgress) {
+            lifecycleHandler.postDelayed(delayedLock, 500L)
         }
     }
 
-    /**
-     * Called when the app returns to the foreground.
-     */
-    fun onAppForegrounded() {
-        if (_isLocked.value) return
-        
-        val timeoutSeconds = vaultPrefs.getAutoLockTimeout()
-        if (timeoutSeconds < 0) { // Never lock
-            updateActivity()
-            return
-        }
-
-        val currentTime = SystemClock.elapsedRealtime()
-        
-        // 1. Check if background duration exceeded timeout
-        if (backgroundTimestamp > 0) {
-            val elapsedSeconds = (currentTime - backgroundTimestamp) / 1000
-            if (elapsedSeconds >= timeoutSeconds) {
-                lock()
-                backgroundTimestamp = 0
-                return
-            }
-        }
-        backgroundTimestamp = 0 // Reset since we are foregrounded
-        
-        // 2. Also check if cumulative inactivity exceeded timeout
-        checkInactivityLock()
+    fun onAppResumed() {
+        lifecycleHandler.removeCallbacks(delayedLock)
     }
+}
 
-    /**
-     * Periodically called to check for idle timeout while app is open.
-     */
-    fun checkInactivityLock() {
-        if (_isLocked.value) return
-        
-        val timeoutSeconds = vaultPrefs.getAutoLockTimeout()
-        // If timeout is Immediately (0) or Never (-1), ignore timer-based lock
-        if (timeoutSeconds <= 0) return 
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface SecurityManagerEntryPoint {
+    fun securityManager(): SecurityManager
+}
 
-        val currentTime = SystemClock.elapsedRealtime()
-        val elapsedInactivitySeconds = (currentTime - lastActiveTime) / 1000
-        
-        if (elapsedInactivitySeconds >= timeoutSeconds) {
-            lock()
-        }
+@Composable
+fun rememberSecurityManager(): SecurityManager {
+    val context = LocalContext.current
+    return remember(context) {
+        EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            SecurityManagerEntryPoint::class.java
+        ).securityManager()
     }
-
-    fun isImmediateLockEnabled(): Boolean = vaultPrefs.getAutoLockTimeout() == 0
 }

@@ -99,10 +99,16 @@ fun AuthFlow(viewModel: SecurityViewModel) {
 
     fun triggerBiometric() {
         if (viewModel.isBiometricEnabled() && biometricHelper.canAuthenticate()) {
+            viewModel.setTemporaryPause(true)
             biometricHelper.showBiometricPrompt(
                 activity = context as FragmentActivity,
-                onSuccess = { viewModel.unlock("BIOMETRIC_SUCCESS") },
-                onError = { }
+                onSuccess = { 
+                    viewModel.setTemporaryPause(false)
+                    viewModel.unlock("BIOMETRIC_SUCCESS") 
+                },
+                onError = { 
+                    viewModel.setTemporaryPause(false)
+                }
             )
         }
     }
@@ -113,11 +119,14 @@ fun AuthFlow(viewModel: SecurityViewModel) {
 
     if (showRecovery) {
         RecoveryFlow(
-            question = viewModel.getRecoveryQuestion() ?: "",
+            question = viewModel.getRecoveryQuestion() ?: "Security Question",
             onResult = { answer, newPin ->
-                if (!viewModel.resetPinWithRecovery(answer, newPin)) {
-                    error = true
+                val success = viewModel.resetPinWithRecovery(answer, newPin)
+                if (!success) {
+                    // Error is handled inside RecoveryFlow local state if we want, 
+                    // but we can return the result
                 }
+                success
             },
             onCancel = { showRecovery = false }
         )
@@ -145,9 +154,6 @@ fun AuthFlow(viewModel: SecurityViewModel) {
                     if (it.all { char -> char.isDigit() } && it.length <= 6) {
                         pin = it
                         error = false
-                        if (it.length >= 4 && viewModel.unlock(it)) {
-                            // PIN correct
-                        }
                     }
                 },
                 label = { Text("Vault PIN") },
@@ -200,9 +206,10 @@ fun AuthFlow(viewModel: SecurityViewModel) {
 }
 
 @Composable
-fun RecoveryFlow(question: String, onResult: (String, String) -> Unit, onCancel: () -> Unit) {
+fun RecoveryFlow(question: String, onResult: (String, String) -> Boolean, onCancel: () -> Unit) {
     var answer by remember { mutableStateOf("") }
     var newPin by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -230,26 +237,48 @@ fun RecoveryFlow(question: String, onResult: (String, String) -> Unit, onCancel:
         
         OutlinedTextField(
             value = answer,
-            onValueChange = { answer = it },
+            onValueChange = { answer = it; error = null },
             label = { Text("Your Secret Answer") },
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            isError = error != null
         )
         
         Spacer(modifier = Modifier.height(8.dp))
         
         OutlinedTextField(
             value = newPin,
-            onValueChange = { if (it.all { char -> char.isDigit() } && it.length <= 6) newPin = it },
-            label = { Text("Set New PIN") },
+            onValueChange = { 
+                if (it.all { char -> char.isDigit() } && it.length <= 6) {
+                    newPin = it
+                    error = null
+                }
+            },
+            label = { Text("Set New 4-6 Digit PIN") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
             visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            isError = error != null
         )
+        
+        if (error != null) {
+            Text(
+                text = error!!, 
+                color = MaterialTheme.colorScheme.error, 
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(top = 4.dp)
+            )
+        }
         
         Spacer(modifier = Modifier.height(32.dp))
         
         Button(
-            onClick = { onResult(answer, newPin) },
+            onClick = { 
+                if (onResult(answer, newPin)) {
+                    // Success is handled by isLocked state changing in MainActivity
+                } else {
+                    error = "Incorrect answer. Please try again."
+                }
+            },
             enabled = answer.isNotBlank() && newPin.length >= 4,
             modifier = Modifier.fillMaxWidth().height(56.dp)
         ) {

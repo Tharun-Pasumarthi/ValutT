@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import com.vaultt.core.security.rememberSecurityManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,11 +33,28 @@ fun AddMenu(
     onRecordAudio: () -> Unit
 ) {
     val sheetState = rememberModalBottomSheetState()
+    val securityManager = rememberSecurityManager()
 
-    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { if (it.isNotEmpty()) onImportPhotos(it) }
-    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) { if (it.isNotEmpty()) onImportVideos(it) }
-    val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { if (it.isNotEmpty()) onImportAudio(it) }
-    val docPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { if (it.isNotEmpty()) onImportDocs(it) }
+    val photoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) {
+        securityManager.endExternalActivity()
+        if (it.isNotEmpty()) onImportPhotos(it)
+        onDismiss()
+    }
+    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia()) {
+        securityManager.endExternalActivity()
+        if (it.isNotEmpty()) onImportVideos(it)
+        onDismiss()
+    }
+    val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) {
+        securityManager.endExternalActivity()
+        if (it.isNotEmpty()) onImportAudio(it)
+        onDismiss()
+    }
+    val docPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) {
+        securityManager.endExternalActivity()
+        if (it.isNotEmpty()) onImportDocs(it)
+        onDismiss()
+    }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -54,20 +72,20 @@ fun AddMenu(
             )
             
             AddMenuItem("Import Photos", Icons.Default.Image) {
+                securityManager.beginExternalActivity()
                 photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                onDismiss()
             }
             AddMenuItem("Import Videos", Icons.Default.Movie) {
+                securityManager.beginExternalActivity()
                 videoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
-                onDismiss()
             }
             AddMenuItem("Import Audio", Icons.Default.Mic) {
+                securityManager.beginExternalActivity()
                 audioPicker.launch("audio/*")
-                onDismiss()
             }
             AddMenuItem("Import Documents", Icons.Default.Description) {
+                securityManager.beginExternalActivity()
                 docPicker.launch("*/*")
-                onDismiss()
             }
             AddMenuItem("Take Photo", Icons.Default.CameraAlt) {
                 onTakePhoto()

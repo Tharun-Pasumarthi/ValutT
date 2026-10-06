@@ -9,7 +9,7 @@ import com.vaultt.core.database.entity.VaultObjectEntity
 
 @Database(
     entities = [VaultObjectEntity::class, AlbumEntity::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 abstract class VaultDatabase : RoomDatabase() {

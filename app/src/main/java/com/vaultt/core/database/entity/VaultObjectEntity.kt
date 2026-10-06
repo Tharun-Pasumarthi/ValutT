@@ -7,11 +7,12 @@ import androidx.room.PrimaryKey
 data class VaultObjectEntity(
     @PrimaryKey val id: String,
     val encryptedName: ByteArray,
-    val type: String, // PHOTO, VIDEO, etc.
+    val type: String,
+    val mimeType: String? = null,
     val size: Long,
     val createdAt: Long,
     val modifiedAt: Long,
-    val hash: String? = null, // Added for duplicate detection
+    val hash: String? = null,
     val isFavorite: Boolean = false,
     val isDeleted: Boolean = false
 ) {

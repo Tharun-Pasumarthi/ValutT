@@ -1,5 +1,6 @@
 package com.vaultt.data.repository
 
+import android.app.PendingIntent
 import android.app.RecoverableSecurityException
 import android.content.Context
 import android.graphics.Bitmap
@@ -24,6 +25,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.*
+import java.security.DigestInputStream
 import java.security.MessageDigest
 import java.util.UUID
 import javax.inject.Inject
@@ -65,7 +67,7 @@ class VaultRepositoryImpl @Inject constructor(
 
     override suspend fun importPhoto(uri: Uri, name: String, size: Long, force: Boolean): Result<ImportResult> = withContext(Dispatchers.IO) {
         runCatching {
-            val hash = context.contentResolver.openInputStream(uri)?.use { calculateHash(it) } ?: throw IOException("Could not read stream")
+            val hash = calculateUriHash(uri)
             
             if (!force) {
                 val existing = vaultObjectDao.getAllObjects().first().find { it.hash == hash }
@@ -77,13 +79,14 @@ class VaultRepositoryImpl @Inject constructor(
             val id = UUID.randomUUID().toString()
             val file = storageManager.getObjectFile(id)
             
+            // Encrypt
             context.contentResolver.openInputStream(uri)?.use { inputStream ->
                 FileOutputStream(file).use { fos ->
                     cryptoManager.newEncryptingStream(fos, id.toByteArray()).use { encryptingStream ->
                         inputStream.copyTo(encryptingStream)
                     }
                 }
-            }
+            } ?: throw IOException("Could not open stream")
 
             // Thumbnail
             context.contentResolver.openInputStream(uri)?.use { inputStream ->
@@ -98,7 +101,8 @@ class VaultRepositoryImpl @Inject constructor(
                 id = id,
                 encryptedName = cryptoManager.encrypt(name.toByteArray(), id.toByteArray()),
                 type = VaultObjectType.PHOTO.name,
-                size = size,
+                mimeType = context.contentResolver.getType(uri),
+                size = file.length(),
                 createdAt = System.currentTimeMillis(),
                 modifiedAt = System.currentTimeMillis(),
                 hash = hash
@@ -111,7 +115,7 @@ class VaultRepositoryImpl @Inject constructor(
 
     override suspend fun importMediaStreaming(uri: Uri, name: String, size: Long, type: String, force: Boolean): Result<ImportResult> = withContext(Dispatchers.IO) {
         runCatching {
-            val hash = context.contentResolver.openInputStream(uri)?.use { calculateHash(it) } ?: throw IOException("Could not read stream")
+            val hash = calculateUriHash(uri)
 
             if (!force) {
                 val existing = vaultObjectDao.getAllObjects().first().find { it.hash == hash }
@@ -129,7 +133,7 @@ class VaultRepositoryImpl @Inject constructor(
                         inputStream.copyTo(encryptingStream)
                     }
                 }
-            }
+            } ?: throw IOException("Could not open stream")
 
             if (type == VaultObjectType.VIDEO.name) {
                 generateVideoThumbnail(uri)?.let { thumbBytes ->
@@ -142,7 +146,8 @@ class VaultRepositoryImpl @Inject constructor(
                 id = id,
                 encryptedName = cryptoManager.encrypt(name.toByteArray(), id.toByteArray()),
                 type = type,
-                size = size,
+                mimeType = context.contentResolver.getType(uri),
+                size = file.length(),
                 createdAt = System.currentTimeMillis(),
                 modifiedAt = System.currentTimeMillis(),
                 hash = hash
@@ -155,10 +160,11 @@ class VaultRepositoryImpl @Inject constructor(
 
     override suspend fun importFromBytes(bytes: ByteArray, name: String, type: String): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
-            val hash = calculateHash(ByteArrayInputStream(bytes))
             val id = UUID.randomUUID().toString()
-            val file = storageManager.getObjectFile(id)
+            val messageDigest = MessageDigest.getInstance("SHA-256")
+            val hash = messageDigest.digest(bytes).joinToString("") { "%02x".format(it) }
             
+            val file = storageManager.getObjectFile(id)
             FileOutputStream(file).use { fos ->
                 cryptoManager.newEncryptingStream(fos, id.toByteArray()).use { it.write(bytes) }
             }
@@ -174,7 +180,7 @@ class VaultRepositoryImpl @Inject constructor(
                 id = id,
                 encryptedName = cryptoManager.encrypt(name.toByteArray(), id.toByteArray()),
                 type = type,
-                size = bytes.size.toLong(),
+                size = file.length(),
                 createdAt = System.currentTimeMillis(),
                 modifiedAt = System.currentTimeMillis(),
                 hash = hash
@@ -185,9 +191,6 @@ class VaultRepositoryImpl @Inject constructor(
     }
 
     override fun getDeleteRequestIntentSender(uris: List<Uri>): android.content.IntentSender? {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_30) {
-            return MediaStore.createDeleteRequest(context.contentResolver, uris).intentSender
-        }
         return null
     }
 
@@ -293,7 +296,7 @@ class VaultRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun getObjectByHash(hash: String): VaultObject? {
+    suspend fun getObjectByHash(hash: String): VaultObject? {
         return vaultObjectDao.getAllObjects().first().find { it.hash == hash }?.toDomainModel()
     }
 
@@ -327,8 +330,11 @@ class VaultRepositoryImpl @Inject constructor(
         while (inputStream.read(buffer).also { bytesRead = it } != -1) {
             md.update(buffer, 0, bytesRead)
         }
-        val digest = md.digest()
-        return digest.joinToString("") { "%02x".format(it) }
+        return md.digest().joinToString("") { "%02x".format(it) }
+    }
+
+    private fun calculateUriHash(uri: Uri): String {
+        return context.contentResolver.openInputStream(uri)?.use { calculateHash(it) } ?: ""
     }
 
     private fun VaultObjectEntity.toDomainModel(): VaultObject {
@@ -342,6 +348,7 @@ class VaultRepositoryImpl @Inject constructor(
             id = id,
             name = name,
             type = VaultObjectType.valueOf(type),
+            mimeType = mimeType,
             size = size,
             createdAt = createdAt,
             modifiedAt = modifiedAt,

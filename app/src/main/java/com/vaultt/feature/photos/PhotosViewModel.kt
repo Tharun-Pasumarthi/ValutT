@@ -57,10 +57,6 @@ class PhotosViewModel @Inject constructor(
                 _duplicateAlert.value = duplicates
             }
             
-            if (successfullyImportedUris.isNotEmpty()) {
-                requestSystemDeletion(successfullyImportedUris)
-            }
-            
             _isImporting.value = false
         }
     }
@@ -70,15 +66,6 @@ class PhotosViewModel @Inject constructor(
         clearDuplicateAlert()
         if (duplicates.isNotEmpty()) {
             importPhotos(duplicates, force = true)
-        }
-    }
-
-    private fun requestSystemDeletion(uris: List<Uri>) {
-        val intentSender = repository.getDeleteRequestIntentSender(uris)
-        if (intentSender != null) {
-            viewModelScope.launch {
-                _deleteIntentSender.emit(intentSender)
-            }
         }
     }
 

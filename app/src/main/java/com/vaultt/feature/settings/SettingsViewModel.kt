@@ -35,18 +35,25 @@ class SettingsViewModel @Inject constructor(
     fun setBiometricEnabled(enabled: Boolean) = vaultPrefs.setBiometricEnabled(enabled)
     fun getAutoLockTimeout() = vaultPrefs.getAutoLockTimeout()
     fun setAutoLockTimeout(seconds: Int) = vaultPrefs.setAutoLockTimeout(seconds)
+    
     fun changePin(old: String, new: String): Boolean {
-        return if (vaultPrefs.getPin() == old) {
-            vaultPrefs.savePin(new)
+        val storedPin = vaultPrefs.getPin()?.trim()
+        val oldTrimmed = old.trim()
+        val newTrimmed = new.trim()
+        
+        // Basic validation: must match current and be 4-6 digits
+        return if (storedPin == oldTrimmed && newTrimmed.length in 4..6 && newTrimmed.all { it.isDigit() }) {
+            vaultPrefs.savePin(newTrimmed)
             true
         } else {
             false
         }
     }
+    
     fun destroyVault(onComplete: () -> Unit) {
         viewModelScope.launch {
             vaultRepository.destroyVault()
-            vaultPrefs.savePin("")
+            vaultPrefs.clearAll()
             securityManager.lock()
             onComplete()
         }

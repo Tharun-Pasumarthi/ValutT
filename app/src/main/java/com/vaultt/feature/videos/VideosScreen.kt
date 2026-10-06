@@ -1,6 +1,7 @@
 package com.vaultt.feature.videos
 
 import android.graphics.BitmapFactory
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -25,6 +26,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vaultt.domain.model.VaultObject
+import com.vaultt.core.security.rememberSecurityManager
 import com.vaultt.feature.photos.PhotosViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -32,20 +34,44 @@ import com.vaultt.feature.photos.PhotosViewModel
 fun VideosScreen(
     onBack: () -> Unit,
     onVideoClick: (String) -> Unit,
-    viewModel: VideosViewModel = hiltViewModel()
+    viewModel: VideosViewModel = hiltViewModel(),
+    onDeleteRequest: (android.content.IntentSender) -> Unit = {}
 ) {
     val videos by viewModel.videos.collectAsState()
     val isImporting by viewModel.isImporting.collectAsState()
-    val photosViewModel: PhotosViewModel = hiltViewModel() // Reuse for thumbnail loading
+    val duplicates by viewModel.duplicateAlert.collectAsState()
+    val photosViewModel: PhotosViewModel = hiltViewModel()
+    val securityManager = rememberSecurityManager()
 
     val videoPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(),
         onResult = { uris ->
+            securityManager.endExternalActivity()
             if (uris.isNotEmpty()) {
                 viewModel.importVideos(uris)
             }
         }
     )
+
+    LaunchedEffect(Unit) {
+        viewModel.deleteIntentSender.collect {
+            onDeleteRequest(it)
+        }
+    }
+
+    if (duplicates.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { viewModel.clearDuplicateAlert() },
+            title = { Text("Duplicates Detected") },
+            text = { Text("${duplicates.size} videos are already in your vault. Skip them?") },
+            confirmButton = {
+                Button(onClick = { viewModel.clearDuplicateAlert() }) { Text("Skip") }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.continueImportingDuplicates() }) { Text("Import Anyway") }
+            }
+        )
+    }
 
     Scaffold(
         topBar = {
@@ -65,6 +91,7 @@ fun VideosScreen(
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
+                    securityManager.beginExternalActivity()
                     videoPickerLauncher.launch(
                         PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly)
                     )

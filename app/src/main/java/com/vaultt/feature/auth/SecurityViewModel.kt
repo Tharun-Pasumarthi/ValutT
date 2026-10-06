@@ -66,6 +66,10 @@ class SecurityViewModel @Inject constructor(
         securityManager.lock()
     }
     
+    fun setTemporaryPause(active: Boolean) {
+        securityManager.setTemporaryPause(active)
+    }
+
     fun changePin(oldPin: String, newPin: String): Boolean {
         return if (vaultPrefs.getPin() == oldPin) {
             vaultPrefs.savePin(newPin)
@@ -78,8 +82,7 @@ class SecurityViewModel @Inject constructor(
     fun destroyVault(onComplete: () -> Unit) {
         viewModelScope.launch {
             vaultRepository.destroyVault()
-            // Clear prefs
-            vaultPrefs.savePin("") // Or a more thorough clear
+            vaultPrefs.clearAll()
             _setupComplete.value = false
             securityManager.lock()
             onComplete()

@@ -39,6 +39,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vaultt.feature.audio.AudioViewModel
+import com.vaultt.core.security.rememberSecurityManager
 import kotlinx.coroutines.delay
 import java.io.File
 
@@ -49,6 +50,7 @@ fun AudioRecorderScreen(
     viewModel: AudioViewModel = hiltViewModel()
 ) {
     val context = LocalContext.current
+    val securityManager = rememberSecurityManager()
     var isRecording by remember { mutableStateOf(false) }
     var duration by remember { mutableLongStateOf(0L) }
     var recorder by remember { mutableStateOf<MediaRecorder?>(null) }
@@ -57,10 +59,12 @@ fun AudioRecorderScreen(
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
+        securityManager.endExternalActivity()
         if (!isGranted) onBack()
     }
 
     LaunchedEffect(Unit) {
+        securityManager.beginExternalActivity()
         permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
     }
 

@@ -24,7 +24,7 @@ class VaultPrefs @Inject constructor(
     )
 
     fun savePin(pin: String) {
-        sharedPrefs.edit().putString(KEY_PIN, pin).apply()
+        sharedPrefs.edit().putString(KEY_PIN, pin.trim()).apply()
     }
 
     fun getPin(): String? {
@@ -33,7 +33,7 @@ class VaultPrefs @Inject constructor(
 
     fun setRecoveryData(question: String, answer: String) {
         sharedPrefs.edit()
-            .putString(KEY_RECOVERY_QUESTION, question)
+            .putString(KEY_RECOVERY_QUESTION, question.trim())
             .putString(KEY_RECOVERY_ANSWER, answer.lowercase().trim())
             .apply()
     }
@@ -62,7 +62,13 @@ class VaultPrefs @Inject constructor(
     }
 
     fun isVaultSetupComplete(): Boolean {
-        return getPin() != null && getRecoveryQuestion() != null
+        val pin = getPin()
+        val question = getRecoveryQuestion()
+        return !pin.isNullOrBlank() && !question.isNullOrBlank()
+    }
+
+    fun clearAll() {
+        sharedPrefs.edit().clear().apply()
     }
 
     companion object {

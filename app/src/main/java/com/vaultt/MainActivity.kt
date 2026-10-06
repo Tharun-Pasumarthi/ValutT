@@ -49,9 +49,7 @@ import com.vaultt.feature.utilities.AlarmScreen
 import com.vaultt.feature.utilities.TimerScreen
 import com.vaultt.ui.theme.VaultTTheme
 import dagger.hilt.android.AndroidEntryPoint
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -64,7 +62,6 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // Screenshot Protection
         window.setFlags(
             WindowManager.LayoutParams.FLAG_SECURE,
             WindowManager.LayoutParams.FLAG_SECURE
@@ -87,36 +84,31 @@ class MainActivity : FragmentActivity() {
                 val deleteLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.StartIntentSenderForResult()
                 ) { result ->
-                    // Media deleted from public gallery
+                    securityManager.setTemporaryPause(false)
                 }
 
                 // Listen for delete requests from all ViewModels to hide from Gallery
                 LaunchedEffect(photosViewModel, videosViewModel, docsViewModel) {
                     launch {
                         photosViewModel.deleteIntentSender.collectLatest { intentSender ->
+                            securityManager.setTemporaryPause(true)
                             deleteLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
                         }
                     }
                     launch {
                         videosViewModel.deleteIntentSender.collectLatest { intentSender ->
+                            securityManager.setTemporaryPause(true)
                             deleteLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
                         }
                     }
                     launch {
                         docsViewModel.deleteIntentSender.collectLatest { intentSender ->
+                            securityManager.setTemporaryPause(true)
                             deleteLauncher.launch(IntentSenderRequest.Builder(intentSender).build())
                         }
                     }
                 }
 
-                // Periodic inactivity checker loop
-                LaunchedEffect(Unit) {
-                    while (isActive) {
-                        securityManager.checkInactivityLock()
-                        delay(1000)
-                    }
-                }
-                
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
@@ -204,7 +196,8 @@ class MainActivity : FragmentActivity() {
                             composable("documents") {
                                 DocumentsScreen(
                                     onBack = { navController.popBackStack() },
-                                    viewModel = docsViewModel
+                                    viewModel = docsViewModel,
+                                    onDeleteRequest = {}
                                 )
                             }
                             composable("trash") {
@@ -244,18 +237,13 @@ class MainActivity : FragmentActivity() {
         }
     }
 
-    override fun onUserInteraction() {
-        super.onUserInteraction()
-        securityManager.updateActivity()
-    }
-
     override fun onResume() {
         super.onResume()
-        securityManager.onAppForegrounded()
+        securityManager.onAppResumed()
     }
     
     override fun onPause() {
         super.onPause()
-        securityManager.onAppBackgrounded()
+        securityManager.onAppPaused()
     }
 }

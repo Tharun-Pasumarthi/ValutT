@@ -39,6 +39,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vaultt.domain.model.VaultObject
+import com.vaultt.core.security.rememberSecurityManager
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -49,10 +50,12 @@ fun AudioScreen(
 ) {
     val audioFiles by viewModel.audioFiles.collectAsState()
     val isImporting by viewModel.isImporting.collectAsState()
+    val securityManager = rememberSecurityManager()
 
     val audioPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents(),
         onResult = { uris ->
+            securityManager.endExternalActivity()
             if (uris.isNotEmpty()) {
                 viewModel.importAudio(uris)
             }
@@ -76,7 +79,10 @@ fun AudioScreen(
         },
         floatingActionButton = {
             FloatingActionButton(
-                onClick = { audioPickerLauncher.launch("audio/*") },
+                onClick = {
+                    securityManager.beginExternalActivity()
+                    audioPickerLauncher.launch("audio/*")
+                },
                 containerColor = MaterialTheme.colorScheme.primary
             ) {
                 Icon(Icons.Default.Add, contentDescription = "Import Audio")

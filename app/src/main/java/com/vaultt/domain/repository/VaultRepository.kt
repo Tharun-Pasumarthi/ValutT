@@ -33,7 +33,6 @@ interface VaultRepository {
     suspend fun getStorageStats(): Map<String, Long>
     suspend fun destroyVault(): Result<Unit>
     
-    // For deleting from system gallery
     fun getDeleteRequestIntentSender(uris: List<Uri>): IntentSender?
 }
 
