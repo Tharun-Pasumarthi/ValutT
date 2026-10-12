@@ -22,27 +22,31 @@ class TinkDataSource(
 
     override fun open(dataSpec: DataSpec): Long {
         transferInitializing(dataSpec)
-        val fis = FileInputStream(file)
-        inputStream = cryptoManager.newDecryptingStream(fis, associatedData)
-        
-        // Skip to the requested position
-        val skipped = inputStream?.skip(dataSpec.position) ?: 0L
-        if (skipped < dataSpec.position) {
-            throw Exception("Could not skip to position")
-        }
+        try {
+            val fis = FileInputStream(file)
+            inputStream = cryptoManager.newDecryptingStream(fis, associatedData)
 
-        if (dataSpec.length != C.LENGTH_UNSET.toLong()) {
+            if (dataSpec.position > 0) {
+                var remaining = dataSpec.position
+                while (remaining > 0) {
+                    val skipped = inputStream?.skip(remaining) ?: 0L
+                    if (skipped <= 0) {
+                        if (inputStream?.read() == -1) throw java.io.IOException("Unable to seek")
+                        remaining--
+                    } else {
+                        remaining -= skipped
+                    }
+                }
+            }
+
             bytesRemaining = dataSpec.length
-        } else {
-            // This is tricky with encrypted streams because we don't know the exact plaintext length
-            // without reading it all, but for Tink AES-GCM-HKDF, it's roughly file size minus overhead.
-            // For now, we'll use a large number or try to estimate.
-            bytesRemaining = file.length() // Approximate
+            opened = true
+            transferStarted(dataSpec)
+            return bytesRemaining
+        } catch (error: Throwable) {
+            close()
+            throw error
         }
-
-        opened = true
-        transferStarted(dataSpec)
-        return bytesRemaining
     }
 
     override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
