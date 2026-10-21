@@ -8,7 +8,8 @@ data class VaultObject(
     val size: Long,
     val createdAt: Long,
     val modifiedAt: Long,
-    val isFavorite: Boolean = false
+    val isFavorite: Boolean = false,
+    val folderId: String? = null
 )
 
 enum class VaultObjectType {
