@@ -29,7 +29,7 @@ import com.vaultt.feature.auth.SecurityViewModel
 import com.vaultt.feature.photos.ImageViewerScreen
 import com.vaultt.feature.photos.PhotosScreen
 import com.vaultt.feature.photos.PhotosViewModel
-import com.vaultt.feature.videos.VideoPlayerScreen
+import com.vaultt.feature.videos.VideoPagerScreen
 import com.vaultt.feature.videos.VideosScreen
 import com.vaultt.feature.videos.VideosViewModel
 import com.vaultt.feature.audio.AudioPlayerScreen
@@ -39,6 +39,8 @@ import com.vaultt.feature.vault.VaultHomeScreen
 import com.vaultt.feature.vault.HomeViewModel
 import com.vaultt.feature.vault.TrashScreen
 import com.vaultt.feature.vault.BrowserScreen
+import com.vaultt.feature.vault.AlbumsScreen
+import com.vaultt.feature.vault.FolderScreen
 import com.vaultt.feature.settings.SettingsScreen
 import com.vaultt.feature.documents.DocumentsScreen
 import com.vaultt.feature.documents.DocumentsViewModel
@@ -52,6 +54,7 @@ import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import android.net.Uri
 
 @AndroidEntryPoint
 class MainActivity : FragmentActivity() {
@@ -130,6 +133,7 @@ class MainActivity : FragmentActivity() {
                                     onNavigateToClock = { navController.navigate("clock") },
                                     onNavigateToAlarm = { navController.navigate("alarm") },
                                     onNavigateToTimer = { navController.navigate("timer") },
+                                    onNavigateToFolders = { navController.navigate("folders") },
                                     onTakePhoto = { navController.navigate("camera") },
                                     onRecordAudio = { navController.navigate("audio_recorder") },
                                     onImportPhotos = { photosViewModel.importPhotos(it) },
@@ -169,7 +173,7 @@ class MainActivity : FragmentActivity() {
                                 arguments = listOf(navArgument("videoId") { type = NavType.StringType })
                             ) { backStackEntry ->
                                 val videoId = backStackEntry.arguments?.getString("videoId") ?: return@composable
-                                VideoPlayerScreen(
+                                VideoPagerScreen(
                                     videoId = videoId,
                                     onBack = { navController.popBackStack() },
                                     viewModel = videosViewModel
@@ -183,14 +187,22 @@ class MainActivity : FragmentActivity() {
                                 )
                             }
                             composable(
-                                "audio_player/{audioId}",
-                                arguments = listOf(navArgument("audioId") { type = NavType.StringType })
+                                "audio_player/{audioId}?mimeType={mimeType}",
+                                arguments = listOf(
+                                    navArgument("audioId") { type = NavType.StringType },
+                                    navArgument("mimeType") {
+                                        type = NavType.StringType
+                                        nullable = true
+                                        defaultValue = null
+                                    }
+                                )
                             ) { backStackEntry ->
                                 val audioId = backStackEntry.arguments?.getString("audioId") ?: return@composable
                                 AudioPlayerScreen(
                                     audioId = audioId,
                                     onBack = { navController.popBackStack() },
-                                    viewModel = audioViewModel
+                                    viewModel = audioViewModel,
+                                    mimeType = backStackEntry.arguments?.getString("mimeType")
                                 )
                             }
                             composable("documents") {
@@ -203,6 +215,37 @@ class MainActivity : FragmentActivity() {
                             composable("trash") {
                                 TrashScreen(
                                     onBack = { navController.popBackStack() }
+                                )
+                            }
+                            composable("folders") {
+                                AlbumsScreen(
+                                    onBack = { navController.popBackStack() },
+                                    onAlbumClick = { navController.navigate("folder/$it") }
+                                )
+                            }
+                            composable(
+                                "folder/{folderId}",
+                                arguments = listOf(navArgument("folderId") { type = NavType.StringType })
+                            ) { entry ->
+                                val id = entry.arguments?.getString("folderId") ?: return@composable
+                                FolderScreen(
+                                    folderId = id,
+                                    onBack = { navController.popBackStack() },
+                                    onDelete = { navController.popBackStack() },
+                                    onOpenMedia = { item ->
+                                        when (item.type) {
+                                            com.vaultt.domain.model.VaultObjectType.PHOTO ->
+                                                navController.navigate("photo_viewer/${item.id}")
+                                            com.vaultt.domain.model.VaultObjectType.VIDEO ->
+                                                navController.navigate("video_player/${item.id}")
+                                            com.vaultt.domain.model.VaultObjectType.AUDIO ->
+                                                navController.navigate(
+                                                    "audio_player/${item.id}?mimeType=${Uri.encode(item.mimeType ?: "audio/*")}"
+                                                )
+                                            com.vaultt.domain.model.VaultObjectType.DOCUMENT,
+                                            com.vaultt.domain.model.VaultObjectType.OTHER -> Unit
+                                        }
+                                    }
                                 )
                             }
                             composable("browser") {
