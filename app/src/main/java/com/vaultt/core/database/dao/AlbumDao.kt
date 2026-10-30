@@ -12,6 +12,8 @@ import kotlinx.coroutines.flow.Flow
 interface AlbumDao {
     @Query("SELECT * FROM albums")
     fun getAllAlbums(): Flow<List<AlbumEntity>>
+    @Query("SELECT * FROM albums WHERE id = :id LIMIT 1")
+    suspend fun getById(id: String): AlbumEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(album: AlbumEntity)
@@ -21,4 +23,7 @@ interface AlbumDao {
 
     @Query("UPDATE albums SET coverVaultObjectId = :objectId WHERE id = :albumId")
     suspend fun updateCover(albumId: String, objectId: String)
+
+    @Query("UPDATE albums SET encryptedName = :name WHERE id = :id")
+    suspend fun updateName(id: String, name: ByteArray)
 }
