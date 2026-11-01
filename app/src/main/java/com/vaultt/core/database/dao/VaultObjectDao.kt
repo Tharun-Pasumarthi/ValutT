@@ -13,10 +13,10 @@ interface VaultObjectDao {
     @Query("SELECT * FROM vault_objects WHERE isDeleted = 0")
     fun getAllObjects(): Flow<List<VaultObjectEntity>>
 
-    @Query("SELECT * FROM vault_objects WHERE type = :type AND isDeleted = 0")
+    @Query("SELECT * FROM vault_objects WHERE type = :type AND folderId IS NULL AND isDeleted = 0")
     fun getObjectsByType(type: String): Flow<List<VaultObjectEntity>>
 
-    @Query("SELECT COUNT(*) FROM vault_objects WHERE type = :type AND isDeleted = 0")
+    @Query("SELECT COUNT(*) FROM vault_objects WHERE type = :type AND folderId IS NULL AND isDeleted = 0")
     fun getCountByType(type: String): Flow<Int>
 
     @Query("SELECT * FROM vault_objects WHERE isDeleted = 1")
@@ -24,6 +24,10 @@ interface VaultObjectDao {
 
     @Query("SELECT COUNT(*) FROM vault_objects WHERE isDeleted = 1")
     fun getTrashCount(): Flow<Int>
+    @Query("SELECT * FROM vault_objects WHERE folderId = :folderId AND isDeleted = 0")
+    fun getObjectsByFolder(folderId: String): Flow<List<VaultObjectEntity>>
+    @Query("SELECT * FROM vault_objects WHERE folderId IS NULL AND isDeleted = 0")
+    fun getUnfiledObjects(): Flow<List<VaultObjectEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insert(vaultObject: VaultObjectEntity)
@@ -45,6 +49,12 @@ interface VaultObjectDao {
 
     @Query("UPDATE vault_objects SET isDeleted = 0 WHERE id = :id")
     suspend fun restoreFromTrash(id: String)
+    @Query("UPDATE vault_objects SET folderId = :folderId WHERE id = :id")
+    suspend fun setFolder(id: String, folderId: String?)
+    @Query("UPDATE vault_objects SET folderId = :folderId WHERE id IN (:ids)")
+    suspend fun setFolder(ids: List<String>, folderId: String?)
+    @Query("UPDATE vault_objects SET isDeleted = 1 WHERE id IN (:ids)")
+    suspend fun moveToTrash(ids: List<String>)
     
     @Query("DELETE FROM vault_objects WHERE isDeleted = 1")
     suspend fun emptyTrash()
