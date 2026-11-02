@@ -25,7 +25,8 @@ import kotlinx.coroutines.delay
 fun AudioPlayerScreen(
     audioId: String,
     onBack: () -> Unit,
-    viewModel: AudioViewModel = hiltViewModel()
+    viewModel: AudioViewModel = hiltViewModel(),
+    mimeType: String? = null
 ) {
     val context = LocalContext.current
     var showDeleteDialog by remember { mutableStateOf(false) }
@@ -52,7 +53,12 @@ fun AudioPlayerScreen(
         ExoPlayer.Builder(context)
             .setMediaSourceFactory(DefaultMediaSourceFactory(dataSourceFactory))
             .build().apply {
-                setMediaItem(MediaItem.fromUri("vault://$audioId"))
+                setMediaItem(
+                    MediaItem.Builder()
+                        .setUri("vault://$audioId")
+                        .setMimeType(mimeType ?: "audio/*")
+                        .build()
+                )
                 prepare()
                 playWhenReady = true
             }
