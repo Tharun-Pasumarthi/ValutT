@@ -14,7 +14,8 @@ data class VaultObjectEntity(
     val modifiedAt: Long,
     val hash: String? = null,
     val isFavorite: Boolean = false,
-    val isDeleted: Boolean = false
+    val isDeleted: Boolean = false,
+    val folderId: String? = null
 ) {
     override fun equals(other: Any?): Boolean {
         if (this === other) return true
