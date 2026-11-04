@@ -3,13 +3,15 @@ package com.vaultt.feature.documents
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,18 +22,29 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.vaultt.domain.model.VaultObject
 import com.vaultt.core.security.rememberSecurityManager
-import com.vaultt.feature.photos.shareBytes
+import com.vaultt.core.util.FileShareHelper
 import kotlinx.coroutines.launch
-import java.io.File
-import java.io.FileOutputStream
+import com.vaultt.feature.vault.BatchActionBar
+import com.vaultt.feature.vault.FoldersViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun DocumentsScreen(
     onBack: () -> Unit,
     viewModel: DocumentsViewModel = hiltViewModel(),
     onDeleteRequest: (android.content.IntentSender) -> Unit
 ) {
+    var activePdfDocId by remember { mutableStateOf<String?>(null) }
+
+    if (activePdfDocId != null) {
+        PdfViewerScreen(
+            documentId = activePdfDocId!!,
+            onBack = { activePdfDocId = null },
+            viewModel = viewModel
+        )
+        return
+    }
+
     val documents by viewModel.documents.collectAsState()
     val isImporting by viewModel.isImporting.collectAsState()
     val duplicates by viewModel.duplicateAlert.collectAsState()
@@ -39,6 +52,13 @@ fun DocumentsScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val securityManager = rememberSecurityManager()
+    val foldersViewModel: FoldersViewModel = hiltViewModel()
+    val folders by foldersViewModel.folders.collectAsState()
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var showMove by remember { mutableStateOf(false) }
+    var showTrash by remember { mutableStateOf(false) }
+    var showRename by remember { mutableStateOf(false) }
+    var renameText by remember { mutableStateOf("") }
 
     val docPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetMultipleContents(),
@@ -50,40 +70,58 @@ fun DocumentsScreen(
         }
     )
 
-    LaunchedEffect(Unit) {
-        viewModel.deleteIntentSender.collect {
-            onDeleteRequest(it)
-        }
-    }
-
     if (duplicates.isNotEmpty()) {
         AlertDialog(
             onDismissRequest = { viewModel.clearDuplicateAlert() },
-            title = { Text("Duplicates Detected") },
-            text = { Text("${duplicates.size} documents are already in your vault. Skip them?") },
+            title = { Text("Duplicate Documents Detected") },
+            text = {
+                Text("${duplicates.size} document(s) already exist in your vault. Do you want to import them anyway?")
+            },
             confirmButton = {
-                Button(onClick = { viewModel.clearDuplicateAlert() }) { Text("Skip") }
+                TextButton(onClick = { viewModel.continueImportingDuplicates() }) {
+                    Text("Import Anyway")
+                }
             },
             dismissButton = {
-                TextButton(onClick = { viewModel.continueImportingDuplicates() }) { Text("Import Anyway") }
+                TextButton(onClick = { viewModel.clearDuplicateAlert() }) {
+                    Text("Skip")
+                }
             }
         )
     }
 
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Documents") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.background,
-                    titleContentColor = MaterialTheme.colorScheme.primary
+            if (selected.isNotEmpty()) {
+                BatchActionBar(
+                    count = selected.size,
+                    onMove = { showMove = true },
+                    onShare = {
+                        val itemsToShare = documents.filter { it.id in selected }
+                        coroutineScope.launch {
+                            FileShareHelper.shareVaultObjects(context, viewModel.repository, itemsToShare, securityManager)
+                        }
+                    },
+                    onRename = {
+                        renameText = documents.find { it.id == selected.first() }?.name ?: ""
+                        showRename = true
+                    },
+                    onTrash = { showTrash = true }
                 )
-            )
+            } else {
+                TopAppBar(
+                    title = { Text("Documents") },
+                    navigationIcon = {
+                        IconButton(onClick = onBack) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                        }
+                    },
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                        titleContentColor = MaterialTheme.colorScheme.primary
+                    )
+                )
+            }
         },
         floatingActionButton = {
             FloatingActionButton(
@@ -110,20 +148,21 @@ fun DocumentsScreen(
                         DocumentListItem(
                             doc = doc,
                             onClick = {
-                                coroutineScope.launch {
-                                    viewModel.getDocumentData(doc.id).onSuccess { bytes ->
-                                        openDocument(context, bytes, doc.name, doc.mimeType)
+                                if (doc.name.endsWith(".pdf", ignoreCase = true) || doc.mimeType == "application/pdf") {
+                                    activePdfDocId = doc.id
+                                } else {
+                                    coroutineScope.launch {
+                                        FileShareHelper.openVaultObject(context, viewModel.repository, doc, securityManager)
                                     }
                                 }
                             },
                             onShare = {
                                 coroutineScope.launch {
-                                    viewModel.getDocumentData(doc.id).onSuccess { bytes ->
-                                        shareBytes(context, bytes, doc.name)
-                                    }
+                                    FileShareHelper.shareVaultObjects(context, viewModel.repository, listOf(doc), securityManager)
                                 }
                             },
-                            onDelete = { selectedDoc = doc }
+                            onDelete = { selectedDoc = doc },
+                            onLongClick = { selected = selected + doc.id }
                         )
                         HorizontalDivider(
                             modifier = Modifier.padding(vertical = 4.dp),
@@ -132,6 +171,48 @@ fun DocumentsScreen(
                     }
                 }
             }
+            if (showMove) AlertDialog(
+                onDismissRequest = { showMove = false },
+                title = { Text("Move selected items") },
+                text = {
+                    Column {
+                        folders.forEach { f ->
+                            TextButton(onClick = {
+                                foldersViewModel.moveAll(selected.toList(), f.id)
+                                selected = emptySet()
+                                showMove = false
+                            }) { Text(f.name) }
+                        }
+                    }
+                },
+                confirmButton = { TextButton({ showMove = false }) { Text("Cancel") } }
+            )
+            if (showTrash) AlertDialog(
+                onDismissRequest = { showTrash = false },
+                title = { Text("Move to trash?") },
+                text = { Text("Move ${selected.size} selected documents to trash?") },
+                confirmButton = {
+                    TextButton({
+                        foldersViewModel.deleteObjects(selected.toList())
+                        selected = emptySet()
+                        showTrash = false
+                    }) { Text("Move to trash", color = MaterialTheme.colorScheme.error) }
+                },
+                dismissButton = { TextButton({ showTrash = false }) { Text("Cancel") } }
+            )
+            if (showRename) AlertDialog(
+                onDismissRequest = { showRename = false },
+                title = { Text("Rename item") },
+                text = { OutlinedTextField(renameText, { renameText = it }, singleLine = true) },
+                confirmButton = {
+                    TextButton({
+                        selected.firstOrNull()?.let { viewModel.renameObject(it, renameText.trim()) }
+                        selected = emptySet()
+                        showRename = false
+                    }) { Text("Save") }
+                },
+                dismissButton = { TextButton({ showRename = false }) { Text("Cancel") } }
+            )
 
             if (isImporting) {
                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
@@ -159,36 +240,28 @@ fun DocumentsScreen(
     }
 }
 
-fun openDocument(context: Context, bytes: ByteArray, filename: String, mimeType: String?) {
-    val tempFile = File(context.cacheDir, filename)
-    FileOutputStream(tempFile).use { it.write(bytes) }
-    val uri = androidx.core.content.FileProvider.getUriForFile(
-        context, 
-        "${context.packageName}.fileprovider", 
-        tempFile
-    )
-    
-    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-        setDataAndType(uri, mimeType ?: context.contentResolver.getType(uri) ?: "*/*")
-        addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-    }
-    context.startActivity(android.content.Intent.createChooser(intent, "Open Document"))
-}
-
 @Composable
-fun DocumentListItem(doc: VaultObject, onClick: () -> Unit, onShare: () -> Unit, onDelete: () -> Unit) {
+@OptIn(ExperimentalFoundationApi::class)
+fun DocumentListItem(
+    doc: VaultObject,
+    onClick: () -> Unit,
+    onShare: () -> Unit,
+    onDelete: () -> Unit,
+    onLongClick: () -> Unit
+) {
+    val isPdf = doc.name.endsWith(".pdf", ignoreCase = true) || doc.mimeType == "application/pdf"
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            imageVector = Icons.Default.Description,
+            imageVector = if (isPdf) Icons.Default.PictureAsPdf else Icons.Default.Description,
             contentDescription = null,
             modifier = Modifier.size(40.dp),
-            tint = MaterialTheme.colorScheme.primary
+            tint = if (isPdf) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
         )
         Spacer(modifier = Modifier.width(16.dp))
         Column(modifier = Modifier.weight(1f)) {
@@ -197,11 +270,20 @@ fun DocumentListItem(doc: VaultObject, onClick: () -> Unit, onShare: () -> Unit,
                 style = MaterialTheme.typography.bodyLarge,
                 maxLines = 1
             )
-            Text(
-                text = "${doc.size / 1024} KB",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "${doc.size / 1024} KB",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                )
+                if (isPdf) {
+                    Text(
+                        text = "• In-Memory PDF",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
         }
         IconButton(onClick = onShare) {
             Icon(Icons.Default.Share, contentDescription = "Share", tint = MaterialTheme.colorScheme.outline)
@@ -219,15 +301,17 @@ fun EmptyDocumentsState() {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text(
-            text = "No documents",
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+        Icon(
+            imageVector = Icons.Default.Description,
+            contentDescription = null,
+            modifier = Modifier.size(64.dp),
+            tint = MaterialTheme.colorScheme.outline
         )
+        Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "Import your private documents into Vault T.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f)
+            text = "No documents in vault",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.outline
         )
     }
 }
