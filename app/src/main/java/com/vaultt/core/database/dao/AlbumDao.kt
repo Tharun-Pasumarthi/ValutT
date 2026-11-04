@@ -22,7 +22,7 @@ interface AlbumDao {
     suspend fun delete(album: AlbumEntity)
 
     @Query("UPDATE albums SET coverVaultObjectId = :objectId WHERE id = :albumId")
-    suspend fun updateCover(albumId: String, objectId: String)
+    suspend fun updateCover(albumId: String, objectId: String?)
 
     @Query("UPDATE albums SET encryptedName = :name WHERE id = :id")
     suspend fun updateName(id: String, name: ByteArray)
