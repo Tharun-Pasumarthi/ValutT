@@ -15,7 +15,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,6 +44,7 @@ fun PhotosScreen(
     val securityManager = rememberSecurityManager()
     val context = LocalContext.current
     val duplicates by viewModel.duplicateAlert.collectAsState()
+    val deletePromptUris by viewModel.deletePromptUris.collectAsState()
     val foldersViewModel: FoldersViewModel = hiltViewModel()
     val folders by foldersViewModel.folders.collectAsState()
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -83,13 +84,40 @@ fun PhotosScreen(
         )
     }
 
+    if (deletePromptUris.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { viewModel.clearDeletePrompt() },
+            title = { Text("Delete from Public Gallery?") },
+            text = {
+                Text("${deletePromptUris.size} photo(s) are safely encrypted into Vault T.\n\nDo you want to delete the original file(s) from your public gallery to hide them completely from other apps?")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val uris = deletePromptUris
+                        viewModel.clearDeletePrompt()
+                        viewModel.confirmDeleteOriginals(uris)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete from Gallery")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { viewModel.clearDeletePrompt() }) {
+                    Text("Keep in Gallery")
+                }
+            }
+        )
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(if (selected.isEmpty()) "Photos" else "${selected.size} selected") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
