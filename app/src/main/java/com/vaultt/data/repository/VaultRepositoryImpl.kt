@@ -12,12 +12,15 @@ import android.os.Build
 import android.provider.MediaStore
 import com.vaultt.core.database.dao.VaultObjectDao
 import com.vaultt.core.database.entity.VaultObjectEntity
+import com.vaultt.core.database.dao.AlbumDao
+import com.vaultt.core.database.entity.AlbumEntity
 import com.vaultt.core.security.CryptoManager
 import com.vaultt.core.storage.StorageManager
 import com.vaultt.domain.model.VaultObject
 import com.vaultt.domain.model.VaultObjectType
 import com.vaultt.domain.repository.ImportResult
 import com.vaultt.domain.repository.VaultRepository
+import com.vaultt.domain.repository.VaultFolder
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -35,6 +38,7 @@ import javax.inject.Singleton
 class VaultRepositoryImpl @Inject constructor(
     @ApplicationContext private val context: Context,
     private val vaultObjectDao: VaultObjectDao,
+    private val albumDao: AlbumDao,
     private val cryptoManager: CryptoManager,
     private val storageManager: StorageManager
 ) : VaultRepository {
@@ -64,8 +68,46 @@ class VaultRepositoryImpl @Inject constructor(
     override fun getTrashCount(): Flow<Int> {
         return vaultObjectDao.getTrashCount()
     }
+    override fun getFolders(): Flow<List<VaultFolder>> = kotlinx.coroutines.flow.combine(
+        albumDao.getAllAlbums(),
+        vaultObjectDao.getAllObjects()
+    ) { albums, objects ->
+        albums.map { album ->
+            val folderName = runCatching {
+                String(cryptoManager.decrypt(album.encryptedName, album.id.toByteArray()))
+            }.getOrDefault("Folder")
+            val count = objects.count { it.folderId == album.id && !it.isDeleted }
+            VaultFolder(album.id, folderName, album.createdAt, count, album.coverVaultObjectId)
+        }
+    }
+    override fun getFolderObjects(folderId: String): Flow<List<VaultObject>> =
+        vaultObjectDao.getObjectsByFolder(folderId).map { it.map { entity -> entity.toDomainModel() } }
+    override fun getUnfiledObjects(): Flow<List<VaultObject>> =
+        vaultObjectDao.getUnfiledObjects().map { it.map { entity -> entity.toDomainModel() } }
 
-    override suspend fun importPhoto(uri: Uri, name: String, size: Long, force: Boolean): Result<ImportResult> = withContext(Dispatchers.IO) {
+    override suspend fun createFolder(name: String): Result<String> = runCatching {
+        val id = UUID.randomUUID().toString()
+        albumDao.insert(AlbumEntity(id, cryptoManager.encrypt(name.toByteArray(), id.toByteArray()), System.currentTimeMillis()))
+        id
+    }
+    override suspend fun renameFolder(id: String, name: String): Result<Unit> = runCatching {
+        albumDao.updateName(id, cryptoManager.encrypt(name.toByteArray(), id.toByteArray()))
+    }
+    override suspend fun setFolderCover(id: String, objectId: String?): Result<Unit> = runCatching {
+        albumDao.updateCover(id, objectId)
+    }
+    override suspend fun deleteFolder(id: String): Result<Unit> = runCatching {
+        vaultObjectDao.getObjectsByFolder(id).first().forEach { vaultObjectDao.setFolder(it.id, null) }
+        albumDao.getById(id)?.let { albumDao.delete(it) }
+    }
+    override suspend fun moveToFolder(objectId: String, folderId: String?): Result<Unit> = runCatching {
+        vaultObjectDao.setFolder(objectId, folderId)
+    }
+    override suspend fun moveToFolder(objectIds: List<String>, folderId: String?): Result<Unit> = runCatching {
+        if (objectIds.isNotEmpty()) vaultObjectDao.setFolder(objectIds, folderId)
+    }
+
+    override suspend fun importPhoto(uri: Uri, name: String, size: Long, force: Boolean, folderId: String?): Result<ImportResult> = withContext(Dispatchers.IO) {
         runCatching {
             val hash = calculateUriHash(uri)
             
@@ -105,7 +147,7 @@ class VaultRepositoryImpl @Inject constructor(
                 size = file.length(),
                 createdAt = System.currentTimeMillis(),
                 modifiedAt = System.currentTimeMillis(),
-                hash = hash
+                hash = hash, folderId = folderId
             )
             vaultObjectDao.insert(entity)
             
@@ -113,7 +155,7 @@ class VaultRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun importMediaStreaming(uri: Uri, name: String, size: Long, type: String, force: Boolean): Result<ImportResult> = withContext(Dispatchers.IO) {
+    override suspend fun importMediaStreaming(uri: Uri, name: String, size: Long, type: String, force: Boolean, folderId: String?): Result<ImportResult> = withContext(Dispatchers.IO) {
         runCatching {
             val hash = calculateUriHash(uri)
 
@@ -150,7 +192,7 @@ class VaultRepositoryImpl @Inject constructor(
                 size = file.length(),
                 createdAt = System.currentTimeMillis(),
                 modifiedAt = System.currentTimeMillis(),
-                hash = hash
+                hash = hash, folderId = folderId
             )
             vaultObjectDao.insert(entity)
             
@@ -158,7 +200,7 @@ class VaultRepositoryImpl @Inject constructor(
         }
     }
 
-    override suspend fun importFromBytes(bytes: ByteArray, name: String, type: String): Result<String> = withContext(Dispatchers.IO) {
+    override suspend fun importFromBytes(bytes: ByteArray, name: String, type: String, folderId: String?): Result<String> = withContext(Dispatchers.IO) {
         runCatching {
             val id = UUID.randomUUID().toString()
             val messageDigest = MessageDigest.getInstance("SHA-256")
@@ -183,7 +225,7 @@ class VaultRepositoryImpl @Inject constructor(
                 size = file.length(),
                 createdAt = System.currentTimeMillis(),
                 modifiedAt = System.currentTimeMillis(),
-                hash = hash
+                hash = hash, folderId = folderId
             )
             vaultObjectDao.insert(entity)
             id
@@ -257,6 +299,27 @@ class VaultRepositoryImpl @Inject constructor(
     override suspend fun moveToTrash(id: String): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             vaultObjectDao.moveToTrash(id)
+        }
+    }
+    override suspend fun moveToTrash(ids: List<String>): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            if (ids.isNotEmpty()) vaultObjectDao.moveToTrash(ids)
+        }
+    }
+
+    override suspend fun restoreFromTrash(ids: List<String>): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            if (ids.isNotEmpty()) vaultObjectDao.restoreFromTrash(ids)
+        }
+    }
+
+    override suspend fun deleteObjects(ids: List<String>): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            ids.forEach { id ->
+                storageManager.getObjectFile(id).delete()
+                storageManager.getThumbnailFile(id).delete()
+                vaultObjectDao.deleteById(id)
+            }
         }
     }
 
@@ -352,7 +415,8 @@ class VaultRepositoryImpl @Inject constructor(
             size = size,
             createdAt = createdAt,
             modifiedAt = modifiedAt,
-            isFavorite = isFavorite
+            isFavorite = isFavorite,
+            folderId = folderId
         )
     }
 }
