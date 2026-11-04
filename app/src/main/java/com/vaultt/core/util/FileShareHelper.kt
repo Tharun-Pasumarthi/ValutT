@@ -12,6 +12,7 @@ import com.vaultt.domain.model.VaultObject
 import com.vaultt.domain.repository.VaultRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
 
@@ -26,18 +27,23 @@ object FileShareHelper {
         if (objects.isEmpty()) return
 
         runCatching {
+            securityManager?.beginExternalActivity()
+
             val shareDir = File(context.cacheDir, "shared").apply {
-                if (exists()) {
-                    listFiles()?.forEach { it.delete() }
-                } else {
-                    mkdirs()
-                }
+                if (!exists()) mkdirs()
             }
 
             val uris = ArrayList<Uri>()
             var primaryMimeType: String? = null
 
             withContext(Dispatchers.IO) {
+                // Asynchronously delete stale files older than 5 minutes to keep cache clean without blocking
+                shareDir.listFiles()?.forEach { file ->
+                    if (System.currentTimeMillis() - file.lastModified() > 300_000) {
+                        file.delete()
+                    }
+                }
+
                 objects.forEachIndexed { index, item ->
                     val rawName = item.name
                     val safeName = rawName
@@ -55,8 +61,9 @@ object FileShareHelper {
                         File(shareDir, safeName)
                     }
 
-                    FileOutputStream(tempFile).use { fos ->
-                        repository.exportObject(item.id, fos).getOrThrow()
+                    // High performance buffered stream
+                    BufferedOutputStream(FileOutputStream(tempFile), 65536).use { bos ->
+                        repository.exportObject(item.id, bos).getOrThrow()
                     }
 
                     val uri = FileProvider.getUriForFile(
@@ -101,18 +108,12 @@ object FileShareHelper {
             val title = if (objects.size > 1) "Share ${objects.size} items" else "Share item"
             val chooser = Intent.createChooser(shareIntent, title).apply {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
 
-            context.packageManager.queryIntentActivities(shareIntent, 0).forEach { resolveInfo ->
-                val pkg = resolveInfo.activityInfo.packageName
-                uris.forEach { uri ->
-                    context.grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-            }
-
-            securityManager?.beginExternalActivity()
             context.startActivity(chooser)
         }.onFailure { e ->
+            securityManager?.endExternalActivity()
             val message = if (e is ActivityNotFoundException) {
                 "No app available to share"
             } else {
@@ -129,12 +130,10 @@ object FileShareHelper {
         securityManager: SecurityManager? = null
     ) {
         runCatching {
-            val shareDir = File(context.cacheDir, "opened").apply {
-                if (exists()) {
-                    listFiles()?.forEach { it.delete() }
-                } else {
-                    mkdirs()
-                }
+            securityManager?.beginExternalActivity()
+
+            val openDir = File(context.cacheDir, "opened").apply {
+                if (!exists()) mkdirs()
             }
 
             val safeName = item.name
@@ -143,11 +142,11 @@ object FileShareHelper {
                 .replace(Regex("""[^\w.\- ()]"""), "_")
                 .ifBlank { "opened_file" }
 
-            val tempFile = File(shareDir, safeName)
+            val tempFile = File(openDir, safeName)
 
             withContext(Dispatchers.IO) {
-                FileOutputStream(tempFile).use { fos ->
-                    repository.exportObject(item.id, fos).getOrThrow()
+                BufferedOutputStream(FileOutputStream(tempFile), 65536).use { bos ->
+                    repository.exportObject(item.id, bos).getOrThrow()
                 }
             }
 
@@ -168,16 +167,12 @@ object FileShareHelper {
 
             val chooser = Intent.createChooser(intent, "Open file").apply {
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
 
-            context.packageManager.queryIntentActivities(intent, 0).forEach { resolveInfo ->
-                val pkg = resolveInfo.activityInfo.packageName
-                context.grantUriPermission(pkg, uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-
-            securityManager?.beginExternalActivity()
             context.startActivity(chooser)
         }.onFailure { e ->
+            securityManager?.endExternalActivity()
             val message = if (e is ActivityNotFoundException) {
                 "No app available to open this file"
             } else {
