@@ -29,6 +29,7 @@ fun VaultHomeScreen(
     onNavigateToClock: () -> Unit,
     onNavigateToAlarm: () -> Unit,
     onNavigateToTimer: () -> Unit,
+    onNavigateToFolders: () -> Unit,
     onTakePhoto: () -> Unit,
     onRecordAudio: () -> Unit,
     onImportPhotos: (List<Uri>) -> Unit,
@@ -104,6 +105,9 @@ fun VaultHomeScreen(
             item { SecurityStatusCard() }
 
             item {
+                CategoryCard("Folders", viewModel.folderCount.collectAsState().value, Icons.Default.Folder, Modifier.fillMaxWidth().height(80.dp), onNavigateToFolders)
+            }
+            item {
                 Text("Categories", style = MaterialTheme.typography.titleMedium)
                 CategoryGrid(
                     photoCount = photoCount,
@@ -117,11 +121,6 @@ fun VaultHomeScreen(
                 )
             }
 
-            item {
-                Text("Utilities", style = MaterialTheme.typography.titleMedium)
-                UtilityRow(onNavigateToClock, onNavigateToAlarm, onNavigateToTimer)
-            }
-            
             item {
                 CategoryCard(
                     title = "Trash",
