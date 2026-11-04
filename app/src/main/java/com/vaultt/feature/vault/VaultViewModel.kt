@@ -13,11 +13,22 @@ import javax.inject.Inject
 
 @HiltViewModel
 class VaultViewModel @Inject constructor(
-    private val repository: VaultRepository
+    val repository: VaultRepository,
+    val vaultPrefs: com.vaultt.core.security.VaultPrefs
 ) : ViewModel() {
+
+    fun getZoomSensitivity(): Float = vaultPrefs.getZoomSensitivity()
 
     val trashItems: StateFlow<List<VaultObject>> = repository.getTrashObjects()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    suspend fun getThumbnail(id: String): ByteArray? {
+        return repository.getDecryptedThumbnail(id).getOrNull()
+    }
+
+    suspend fun getFullImage(id: String): ByteArray? {
+        return repository.getDecryptedData(id).getOrNull()
+    }
 
     fun restoreObject(id: String) {
         viewModelScope.launch {
@@ -25,9 +36,21 @@ class VaultViewModel @Inject constructor(
         }
     }
 
+    fun restoreObjects(ids: List<String>) {
+        viewModelScope.launch {
+            repository.restoreFromTrash(ids)
+        }
+    }
+
     fun permanentlyDelete(id: String) {
         viewModelScope.launch {
             repository.deleteObject(id)
+        }
+    }
+
+    fun permanentlyDeleteObjects(ids: List<String>) {
+        viewModelScope.launch {
+            repository.deleteObjects(ids)
         }
     }
 
