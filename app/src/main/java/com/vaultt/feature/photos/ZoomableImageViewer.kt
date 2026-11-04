@@ -1,17 +1,14 @@
 package com.vaultt.feature.photos
 
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ZoomIn
-import androidx.compose.material.icons.filled.ZoomOut
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -56,21 +53,51 @@ fun ZoomableImage(
                 )
             }
             .pointerInput(zoomSensitivity) {
-                detectTransformGestures { _, pan, zoom, _ ->
-                    val effectiveZoom = 1f + (zoom - 1f) * zoomSensitivity.coerceIn(0.4f, 2.5f)
-                    val newScale = (scale * effectiveZoom).coerceIn(1f, 5f)
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    do {
+                        val event = awaitPointerEvent()
+                        val activePointers = event.changes.filter { it.pressed }
 
-                    if (newScale > 1f) {
-                        val limitX = 1000f * (newScale - 1f)
-                        val limitY = 1500f * (newScale - 1f)
-                        offset = Offset(
-                            (offset.x + pan.x).coerceIn(-limitX, limitX),
-                            (offset.y + pan.y).coerceIn(-limitY, limitY)
-                        )
-                    } else {
-                        offset = Offset.Zero
-                    }
-                    scale = newScale
+                        if (activePointers.size >= 2) {
+                            // Multi-touch pinch: always process zoom
+                            val zoomChange = event.calculateZoom()
+                            val panChange = event.calculatePan()
+
+                            if (zoomChange != 1f || panChange != Offset.Zero) {
+                                val effectiveZoom = 1f + (zoomChange - 1f) * zoomSensitivity.coerceIn(0.4f, 2.5f)
+                                val newScale = (scale * effectiveZoom).coerceIn(1f, 5f)
+
+                                if (newScale > 1f) {
+                                    val limitX = 1000f * (newScale - 1f)
+                                    val limitY = 1500f * (newScale - 1f)
+                                    offset = Offset(
+                                        (offset.x + panChange.x).coerceIn(-limitX, limitX),
+                                        (offset.y + panChange.y).coerceIn(-limitY, limitY)
+                                    )
+                                } else {
+                                    offset = Offset.Zero
+                                }
+                                scale = newScale
+                                event.changes.forEach { it.consume() }
+                            }
+                        } else if (scale > 1.05f) {
+                            // Single pointer while zoomed in: pan inside the zoomed image
+                            val panChange = event.calculatePan()
+                            if (panChange != Offset.Zero) {
+                                val limitX = 1000f * (scale - 1f)
+                                val limitY = 1500f * (scale - 1f)
+                                offset = Offset(
+                                    (offset.x + panChange.x).coerceIn(-limitX, limitX),
+                                    (offset.y + panChange.y).coerceIn(-limitY, limitY)
+                                )
+                                event.changes.forEach { it.consume() }
+                            }
+                        } else {
+                            // At 1.0x scale with 1 pointer: DO NOT consume!
+                            // This allows HorizontalPager to receive horizontal drags and swipe freely between images.
+                        }
+                    } while (event.changes.any { it.pressed })
                 }
             },
         contentAlignment = Alignment.Center
@@ -89,7 +116,7 @@ fun ZoomableImage(
             contentScale = ContentScale.Fit
         )
 
-        // On-screen Zoom Badge and Quick Controls
+        // On-screen Zoom Badge and Quick Reset Controls
         if (scale > 1.05f) {
             Surface(
                 modifier = Modifier
@@ -126,4 +153,3 @@ fun ZoomableImage(
         }
     }
 }
-
