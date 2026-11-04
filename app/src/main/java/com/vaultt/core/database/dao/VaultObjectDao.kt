@@ -49,6 +49,8 @@ interface VaultObjectDao {
 
     @Query("UPDATE vault_objects SET isDeleted = 0 WHERE id = :id")
     suspend fun restoreFromTrash(id: String)
+    @Query("UPDATE vault_objects SET isDeleted = 0 WHERE id IN (:ids)")
+    suspend fun restoreFromTrash(ids: List<String>)
     @Query("UPDATE vault_objects SET folderId = :folderId WHERE id = :id")
     suspend fun setFolder(id: String, folderId: String?)
     @Query("UPDATE vault_objects SET folderId = :folderId WHERE id IN (:ids)")
