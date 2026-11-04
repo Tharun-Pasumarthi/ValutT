@@ -23,6 +23,7 @@ interface VaultRepository {
     fun getUnfiledObjects(): Flow<List<VaultObject>>
     suspend fun createFolder(name: String): Result<String>
     suspend fun renameFolder(id: String, name: String): Result<Unit>
+    suspend fun setFolderCover(id: String, objectId: String?): Result<Unit>
     suspend fun deleteFolder(id: String): Result<Unit>
     suspend fun moveToFolder(objectId: String, folderId: String?): Result<Unit>
     suspend fun moveToFolder(objectIds: List<String>, folderId: String?): Result<Unit>
@@ -38,6 +39,8 @@ interface VaultRepository {
     suspend fun moveToTrash(id: String): Result<Unit>
     suspend fun moveToTrash(ids: List<String>): Result<Unit>
     suspend fun restoreFromTrash(id: String): Result<Unit>
+    suspend fun restoreFromTrash(ids: List<String>): Result<Unit>
+    suspend fun deleteObjects(ids: List<String>): Result<Unit>
     suspend fun emptyTrash(): Result<Unit>
     
     suspend fun getStorageStats(): Map<String, Long>
@@ -53,4 +56,10 @@ data class ImportResult(
     val name: String? = null
 )
 
-data class VaultFolder(val id: String, val name: String, val createdAt: Long, val itemCount: Int = 0)
+data class VaultFolder(
+    val id: String,
+    val name: String,
+    val createdAt: Long,
+    val itemCount: Int = 0,
+    val coverVaultObjectId: String? = null
+)
