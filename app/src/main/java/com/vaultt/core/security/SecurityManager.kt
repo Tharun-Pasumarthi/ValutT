@@ -16,7 +16,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
-class SecurityManager @Inject constructor() {
+class SecurityManager @Inject constructor(
+    private val vaultPrefs: VaultPrefs
+) {
     private val _isLocked = MutableStateFlow(true)
     val isLocked: StateFlow<Boolean> = _isLocked.asStateFlow()
     private var externalActivityInProgress = false
@@ -32,11 +34,15 @@ class SecurityManager @Inject constructor() {
     }
 
     fun unlock() {
+        lifecycleHandler.removeCallbacks(delayedLock)
         _isLocked.value = false
     }
 
     fun setTemporaryPause(active: Boolean) {
         externalActivityInProgress = active
+        if (active) {
+            lifecycleHandler.removeCallbacks(delayedLock)
+        }
     }
 
     fun beginExternalActivity() {
@@ -50,7 +56,10 @@ class SecurityManager @Inject constructor() {
 
     fun onAppPaused() {
         if (!_isLocked.value && !externalActivityInProgress) {
-            lifecycleHandler.postDelayed(delayedLock, 500L)
+            val timeoutSeconds = vaultPrefs.getAutoLockTimeout()
+            // Respect the user's chosen auto-lock timeout. If 0 ("immediately"), provide a safe 3s grace period for dialogs.
+            val delayMs = if (timeoutSeconds <= 0) 3000L else timeoutSeconds * 1000L
+            lifecycleHandler.postDelayed(delayedLock, delayMs)
         }
     }
 
