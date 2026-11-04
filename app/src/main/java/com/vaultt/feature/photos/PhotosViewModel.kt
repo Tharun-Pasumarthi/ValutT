@@ -6,6 +6,7 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.vaultt.core.util.MediaStoreDeletionHelper
 import com.vaultt.domain.model.VaultObject
 import com.vaultt.domain.model.VaultObjectType
 import com.vaultt.domain.repository.VaultRepository
@@ -33,8 +34,15 @@ class PhotosViewModel @Inject constructor(
     private val _duplicateAlert = MutableStateFlow<List<Pair<Uri, String>>>(emptyList())
     val duplicateAlert = _duplicateAlert.asStateFlow()
 
-    private val _deleteIntentSender = MutableSharedFlow<IntentSender>()
+    private val _deletePromptUris = MutableStateFlow<List<Uri>>(emptyList())
+    val deletePromptUris = _deletePromptUris.asStateFlow()
+
+    private val _deleteIntentSender = MutableSharedFlow<IntentSender>(replay = 1)
     val deleteIntentSender = _deleteIntentSender.asSharedFlow()
+
+    fun isDeleteOriginalsEnabled(): Boolean = vaultPrefs.isDeleteOriginalsEnabled()
+
+    fun setDeleteOriginalsEnabled(enabled: Boolean) = vaultPrefs.setDeleteOriginalsEnabled(enabled)
 
     fun importPhotos(uris: List<Uri>, force: Boolean = false, folderId: String? = null) {
         viewModelScope.launch {
@@ -59,9 +67,33 @@ class PhotosViewModel @Inject constructor(
             if (duplicates.isNotEmpty()) {
                 _duplicateAlert.value = duplicates
             }
+
+            if (successfullyImportedUris.isNotEmpty()) {
+                if (vaultPrefs.isDeleteOriginalsEnabled()) {
+                    requestDeleteOriginals(successfullyImportedUris)
+                } else {
+                    _deletePromptUris.value = successfullyImportedUris
+                }
+            }
             
             _isImporting.value = false
         }
+    }
+
+    fun requestDeleteOriginals(uris: List<Uri>) {
+        viewModelScope.launch {
+            MediaStoreDeletionHelper.requestDeleteOriginals(context, uris) { intentSender ->
+                _deleteIntentSender.emit(intentSender)
+            }
+        }
+    }
+
+    fun confirmDeleteOriginals(uris: List<Uri>) {
+        requestDeleteOriginals(uris)
+    }
+
+    fun clearDeletePrompt() {
+        _deletePromptUris.value = emptyList()
     }
 
     fun continueImportingDuplicates() {
