@@ -23,7 +23,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.vaultt.core.security.FlipLockManager
 import com.vaultt.core.security.SecurityManager
+import com.vaultt.core.security.VaultPrefs
 import com.vaultt.feature.auth.LockScreen
 import com.vaultt.feature.auth.SecurityViewModel
 import com.vaultt.feature.photos.ImageViewerScreen
@@ -44,6 +46,7 @@ import com.vaultt.feature.vault.FolderScreen
 import com.vaultt.feature.settings.SettingsScreen
 import com.vaultt.feature.documents.DocumentsScreen
 import com.vaultt.feature.documents.DocumentsViewModel
+import com.vaultt.feature.documents.PdfViewerScreen
 import com.vaultt.feature.tools.CameraScreen
 import com.vaultt.feature.tools.AudioRecorderScreen
 import com.vaultt.feature.utilities.ClockScreen
@@ -51,6 +54,7 @@ import com.vaultt.feature.utilities.AlarmScreen
 import com.vaultt.feature.utilities.TimerScreen
 import com.vaultt.ui.theme.VaultTTheme
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -62,6 +66,19 @@ class MainActivity : FragmentActivity() {
     @Inject
     lateinit var securityManager: SecurityManager
 
+    @Inject
+    lateinit var flipLockManager: FlipLockManager
+
+    @Inject
+    lateinit var vaultPrefs: VaultPrefs
+
+    private var lastInteractionTime = System.currentTimeMillis()
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        lastInteractionTime = System.currentTimeMillis()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
@@ -71,6 +88,7 @@ class MainActivity : FragmentActivity() {
         )
         
         enableEdgeToEdge()
+        requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         setContent {
             VaultTTheme {
                 val securityViewModel: SecurityViewModel = hiltViewModel()
@@ -82,12 +100,36 @@ class MainActivity : FragmentActivity() {
                 
                 val isLocked by securityViewModel.isLocked.collectAsState()
                 val navController = rememberNavController()
+
+                // Inactivity timer monitoring
+                LaunchedEffect(isLocked) {
+                    if (!isLocked) {
+                        lastInteractionTime = System.currentTimeMillis()
+                    }
+                    while (!isLocked) {
+                        delay(5000L)
+                        val timeoutSeconds = vaultPrefs.getAutoLockTimeout()
+                        if (timeoutSeconds > 0) {
+                            val elapsed = System.currentTimeMillis() - lastInteractionTime
+                            if (elapsed > timeoutSeconds * 1000L) {
+                                securityManager.lock()
+                            }
+                        }
+                    }
+                }
                 
                 // Launcher for MediaStore delete request (Required for Android 10+ to delete gallery items)
                 val deleteLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.StartIntentSenderForResult()
                 ) { result ->
                     securityManager.setTemporaryPause(false)
+                    if (result.resultCode == Activity.RESULT_OK) {
+                        android.widget.Toast.makeText(
+                            this@MainActivity,
+                            "Original files removed from gallery",
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
 
                 // Listen for delete requests from all ViewModels to hide from Gallery
@@ -212,6 +254,17 @@ class MainActivity : FragmentActivity() {
                                     onDeleteRequest = {}
                                 )
                             }
+                            composable(
+                                "pdf_viewer/{docId}",
+                                arguments = listOf(navArgument("docId") { type = NavType.StringType })
+                            ) { backStackEntry ->
+                                val docId = backStackEntry.arguments?.getString("docId") ?: return@composable
+                                PdfViewerScreen(
+                                    documentId = docId,
+                                    onBack = { navController.popBackStack() },
+                                    viewModel = docsViewModel
+                                )
+                            }
                             composable("trash") {
                                 TrashScreen(
                                     onBack = { navController.popBackStack() }
@@ -242,7 +295,11 @@ class MainActivity : FragmentActivity() {
                                                 navController.navigate(
                                                     "audio_player/${item.id}?mimeType=${Uri.encode(item.mimeType ?: "audio/*")}"
                                                 )
-                                            com.vaultt.domain.model.VaultObjectType.DOCUMENT,
+                                            com.vaultt.domain.model.VaultObjectType.DOCUMENT -> {
+                                                if (item.name.endsWith(".pdf", ignoreCase = true) || item.mimeType == "application/pdf") {
+                                                    navController.navigate("pdf_viewer/${item.id}")
+                                                }
+                                            }
                                             com.vaultt.domain.model.VaultObjectType.OTHER -> Unit
                                         }
                                     }
@@ -282,11 +339,14 @@ class MainActivity : FragmentActivity() {
 
     override fun onResume() {
         super.onResume()
+        lastInteractionTime = System.currentTimeMillis()
         securityManager.onAppResumed()
+        flipLockManager.startListening()
     }
     
     override fun onPause() {
         super.onPause()
+        flipLockManager.stopListening()
         securityManager.onAppPaused()
     }
 }
