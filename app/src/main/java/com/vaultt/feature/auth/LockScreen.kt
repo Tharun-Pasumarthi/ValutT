@@ -3,6 +3,7 @@ package com.vaultt.feature.auth
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.*
@@ -23,6 +24,11 @@ fun LockScreen(viewModel: SecurityViewModel) {
     
     if (!setupComplete) {
         SetupFlow(onSetup = { pin, q, a -> viewModel.setupVault(pin, q, a) })
+    } else if (viewModel.isStealthModeEnabled()) {
+        CalculatorScreen(
+            onUnlock = { candidate -> viewModel.unlock(candidate) },
+            onFailedAttempt = { viewModel.recordFailedAttempt() }
+        )
     } else {
         AuthFlow(viewModel)
     }
@@ -58,6 +64,7 @@ fun SetupFlow(onSetup: (String, String, String) -> Unit) {
         
         Text("Recovery Question (if you forget your PIN)", style = MaterialTheme.typography.labelLarge)
         Spacer(modifier = Modifier.height(8.dp))
+        
         OutlinedTextField(
             value = question,
             onValueChange = { question = it },
@@ -121,12 +128,7 @@ fun AuthFlow(viewModel: SecurityViewModel) {
         RecoveryFlow(
             question = viewModel.getRecoveryQuestion() ?: "Security Question",
             onResult = { answer, newPin ->
-                val success = viewModel.resetPinWithRecovery(answer, newPin)
-                if (!success) {
-                    // Error is handled inside RecoveryFlow local state if we want, 
-                    // but we can return the result
-                }
-                success
+                viewModel.resetPinWithRecovery(answer, newPin)
             },
             onCancel = { showRecovery = false }
         )
@@ -144,7 +146,7 @@ fun AuthFlow(viewModel: SecurityViewModel) {
             )
             Spacer(modifier = Modifier.height(16.dp))
             Text("Vault T", style = MaterialTheme.typography.displaySmall)
-            Text("Secure. Private. Offline.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
+            Text("Secure • Private • Protected", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
             
             Spacer(modifier = Modifier.height(48.dp))
             
@@ -218,46 +220,26 @@ fun RecoveryFlow(question: String, onResult: (String, String) -> Boolean, onCanc
     ) {
         Text("Vault Recovery", style = MaterialTheme.typography.headlineMedium)
         Spacer(modifier = Modifier.height(16.dp))
-        Text(
-            text = "Answer the following question to reset your PIN:", 
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.outline
-        )
+        Text(question, style = MaterialTheme.typography.bodyLarge)
         
-        Card(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-            Text(
-                text = question, 
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(16.dp)
-            )
-        }
+        Spacer(modifier = Modifier.height(24.dp))
         
         OutlinedTextField(
             value = answer,
             onValueChange = { answer = it; error = null },
-            label = { Text("Your Secret Answer") },
-            modifier = Modifier.fillMaxWidth(),
-            isError = error != null
+            label = { Text("Secret Answer") },
+            modifier = Modifier.fillMaxWidth()
         )
         
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(16.dp))
         
         OutlinedTextField(
             value = newPin,
-            onValueChange = { 
-                if (it.all { char -> char.isDigit() } && it.length <= 6) {
-                    newPin = it
-                    error = null
-                }
-            },
-            label = { Text("Set New 4-6 Digit PIN") },
+            onValueChange = { if (it.all { char -> char.isDigit() } && it.length <= 6) newPin = it; error = null },
+            label = { Text("New 4-6 Digit PIN") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
             visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
-            isError = error != null
+            modifier = Modifier.fillMaxWidth()
         )
         
         if (error != null) {
@@ -272,20 +254,19 @@ fun RecoveryFlow(question: String, onResult: (String, String) -> Boolean, onCanc
         Spacer(modifier = Modifier.height(32.dp))
         
         Button(
-            onClick = { 
-                if (onResult(answer, newPin)) {
-                    // Success is handled by isLocked state changing in MainActivity
-                } else {
-                    error = "Incorrect answer. Please try again."
+            onClick = {
+                if (answer.isNotBlank() && newPin.length >= 4) {
+                    val success = onResult(answer, newPin)
+                    if (!success) error = "Incorrect secret answer"
                 }
             },
             enabled = answer.isNotBlank() && newPin.length >= 4,
             modifier = Modifier.fillMaxWidth().height(56.dp)
         ) {
-            Text("Reset PIN & Access")
+            Text("Reset PIN & Unlock")
         }
         
-        TextButton(onClick = onCancel, modifier = Modifier.padding(top = 8.dp)) {
+        TextButton(onClick = onCancel, modifier = Modifier.padding(top = 16.dp)) {
             Text("Cancel")
         }
     }
