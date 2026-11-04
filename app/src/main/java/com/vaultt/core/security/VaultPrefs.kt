@@ -67,6 +67,60 @@ class VaultPrefs @Inject constructor(
         return !pin.isNullOrBlank() && !question.isNullOrBlank()
     }
 
+    fun setZoomSensitivity(sensitivity: Float) {
+        sharedPrefs.edit().putFloat(KEY_ZOOM_SENSITIVITY, sensitivity).apply()
+    }
+
+    fun getZoomSensitivity(): Float {
+        return sharedPrefs.getFloat(KEY_ZOOM_SENSITIVITY, 1.0f)
+    }
+
+    fun setStealthModeEnabled(enabled: Boolean) {
+        sharedPrefs.edit().putBoolean(KEY_STEALTH_MODE, enabled).apply()
+    }
+
+    fun isStealthModeEnabled(): Boolean {
+        return sharedPrefs.getBoolean(KEY_STEALTH_MODE, false)
+    }
+
+    fun setFlipToLockEnabled(enabled: Boolean) {
+        sharedPrefs.edit().putBoolean(KEY_FLIP_TO_LOCK, enabled).apply()
+    }
+
+    fun isFlipToLockEnabled(): Boolean {
+        return sharedPrefs.getBoolean(KEY_FLIP_TO_LOCK, false)
+    }
+
+    fun setIntruderCaptureEnabled(enabled: Boolean) {
+        sharedPrefs.edit().putBoolean(KEY_INTRUDER_CAPTURE, enabled).apply()
+    }
+
+    fun isIntruderCaptureEnabled(): Boolean {
+        return sharedPrefs.getBoolean(KEY_INTRUDER_CAPTURE, true)
+    }
+
+    fun getFailedAttempts(): Int {
+        return sharedPrefs.getInt(KEY_FAILED_ATTEMPTS, 0)
+    }
+
+    fun incrementFailedAttempts(): Int {
+        val count = getFailedAttempts() + 1
+        sharedPrefs.edit().putInt(KEY_FAILED_ATTEMPTS, count).apply()
+        return count
+    }
+
+    fun resetFailedAttempts() {
+        sharedPrefs.edit().putInt(KEY_FAILED_ATTEMPTS, 0).apply()
+    }
+
+    fun setDeleteOriginalsEnabled(enabled: Boolean) {
+        sharedPrefs.edit().putBoolean(KEY_DELETE_ORIGINALS, enabled).apply()
+    }
+
+    fun isDeleteOriginalsEnabled(): Boolean {
+        return sharedPrefs.getBoolean(KEY_DELETE_ORIGINALS, false)
+    }
+
     fun clearAll() {
         sharedPrefs.edit().clear().apply()
     }
@@ -77,5 +131,11 @@ class VaultPrefs @Inject constructor(
         private const val KEY_RECOVERY_ANSWER = "recovery_answer"
         private const val KEY_BIOMETRIC_ENABLED = "biometric_enabled"
         private const val KEY_AUTO_LOCK_TIMEOUT = "auto_lock_timeout"
+        private const val KEY_ZOOM_SENSITIVITY = "zoom_sensitivity"
+        private const val KEY_STEALTH_MODE = "stealth_calculator_mode"
+        private const val KEY_FLIP_TO_LOCK = "flip_to_lock"
+        private const val KEY_INTRUDER_CAPTURE = "intruder_capture"
+        private const val KEY_FAILED_ATTEMPTS = "failed_attempts_count"
+        private const val KEY_DELETE_ORIGINALS = "delete_originals_on_import"
     }
 }
