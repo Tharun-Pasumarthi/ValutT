@@ -18,7 +18,7 @@ import javax.inject.Inject
 @HiltViewModel
 class DocumentsViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val repository: VaultRepository
+    val repository: VaultRepository
 ) : ViewModel() {
 
     val documents: StateFlow<List<VaultObject>> = repository.getVaultObjectsByType(VaultObjectType.DOCUMENT.name)
@@ -33,7 +33,7 @@ class DocumentsViewModel @Inject constructor(
     private val _deleteIntentSender = MutableSharedFlow<IntentSender>()
     val deleteIntentSender = _deleteIntentSender.asSharedFlow()
 
-    fun importDocuments(uris: List<Uri>, force: Boolean = false) {
+    fun importDocuments(uris: List<Uri>, force: Boolean = false, folderId: String? = null) {
         viewModelScope.launch {
             _isImporting.value = true
             val duplicates = mutableListOf<Pair<Uri, String>>()
@@ -43,7 +43,7 @@ class DocumentsViewModel @Inject constructor(
                 val name = getFileName(uri)
                 val size = getFileSize(uri)
                 
-                val result = repository.importMediaStreaming(uri, name, size, VaultObjectType.DOCUMENT.name, force)
+                val result = repository.importMediaStreaming(uri, name, size, VaultObjectType.DOCUMENT.name, force, folderId)
                 result.onSuccess { importResult ->
                     if (importResult.isDuplicate && !force) {
                         duplicates.add(uri to (importResult.name ?: name))
@@ -78,6 +78,12 @@ class DocumentsViewModel @Inject constructor(
             repository.moveToTrash(id)
         }
     }
+
+    fun renameObject(id: String, name: String) {
+        viewModelScope.launch { repository.renameObject(id, name) }
+    }
+
+    suspend fun getData(id: String): ByteArray? = repository.getDecryptedData(id).getOrNull()
 
     suspend fun getDocumentData(id: String): Result<ByteArray> {
         return repository.getDecryptedData(id)
