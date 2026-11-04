@@ -1,6 +1,8 @@
 package com.vaultt.feature.videos
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -22,7 +24,7 @@ import androidx.media3.ui.PlayerView
 import com.vaultt.core.media.TinkDataSource
 import com.vaultt.core.security.CryptoManager
 import com.vaultt.core.storage.StorageManager
-import com.vaultt.feature.photos.shareBytes
+import com.vaultt.core.util.FileShareHelper
 import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -36,7 +38,8 @@ import kotlin.OptIn
 fun VideoPlayerScreen(
     videoId: String,
     onBack: () -> Unit,
-    viewModel: VideosViewModel = hiltViewModel()
+    viewModel: VideosViewModel = hiltViewModel(),
+    showTopBar: Boolean = true
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -48,7 +51,7 @@ fun VideoPlayerScreen(
             VideoPlayerEntryPoint::class.java
         )
     }
-    
+
     val cryptoManager = hiltEntryPoint.cryptoManager()
     val storageManager = hiltEntryPoint.storageManager()
     
@@ -98,21 +101,22 @@ fun VideoPlayerScreen(
 
     Scaffold(
         topBar = {
-            VideoPlayerTopBar(
+            if (showTopBar) VideoPlayerTopBar(
                 onBack = onBack, 
                 onDelete = { showDeleteDialog = true },
                 onShare = {
                     coroutineScope.launch {
-                        val videoFile = storageManager.getObjectFile(videoId)
-                        val out = ByteArrayOutputStream()
-                        withContext(Dispatchers.IO) {
-                            FileInputStream(videoFile).use { fis ->
-                                cryptoManager.newDecryptingStream(fis, videoId.toByteArray()).use { dec ->
-                                    dec.copyTo(out)
-                                }
-                            }
-                        }
-                        shareBytes(context, out.toByteArray(), "video.mp4")
+                        val videosList = viewModel.videos.value
+                        val videoObj = videosList.find { it.id == videoId } ?: com.vaultt.domain.model.VaultObject(
+                            id = videoId,
+                            name = "video.mp4",
+                            type = com.vaultt.domain.model.VaultObjectType.VIDEO,
+                            mimeType = "video/mp4",
+                            size = storageManager.getObjectFile(videoId).length(),
+                            createdAt = System.currentTimeMillis(),
+                            modifiedAt = System.currentTimeMillis()
+                        )
+                        FileShareHelper.shareVaultObjects(context, viewModel.repository, listOf(videoObj))
                     }
                 }
             )
@@ -139,6 +143,26 @@ fun VideoPlayerScreen(
                 modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)
             )
         }
+    }
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+fun VideoPagerScreen(
+    videoId: String,
+    onBack: () -> Unit,
+    viewModel: VideosViewModel = hiltViewModel(),
+    showTopBar: Boolean = true
+) {
+    val videos by viewModel.videos.collectAsState()
+    val initialPage = maxOf(0, videos.indexOfFirst { it.id == videoId })
+    val pagerState = rememberPagerState(initialPage = initialPage, pageCount = { videos.size })
+    HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+        VideoPlayerScreen(
+            videoId = videos[page].id,
+            onBack = onBack,
+            viewModel = viewModel
+        )
     }
 }
 
