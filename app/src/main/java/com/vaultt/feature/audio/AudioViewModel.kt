@@ -22,7 +22,7 @@ import javax.inject.Inject
 @HiltViewModel
 class AudioViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val repository: VaultRepository
+    val repository: VaultRepository
 ) : ViewModel() {
 
     val audioFiles: StateFlow<List<VaultObject>> = repository.getVaultObjectsByType(VaultObjectType.AUDIO.name)
@@ -31,13 +31,13 @@ class AudioViewModel @Inject constructor(
     private val _isImporting = MutableStateFlow(false)
     val isImporting: StateFlow<Boolean> = _isImporting
 
-    fun importAudio(uris: List<Uri>) {
+    fun importAudio(uris: List<Uri>, folderId: String? = null) {
         viewModelScope.launch {
             _isImporting.value = true
             uris.forEach { uri ->
                 val name = getFileName(uri)
                 val size = getFileSize(uri)
-                repository.importMediaStreaming(uri, name, size, VaultObjectType.AUDIO.name)
+                repository.importMediaStreaming(uri, name, size, VaultObjectType.AUDIO.name, folderId = folderId)
             }
             _isImporting.value = false
         }
@@ -63,6 +63,8 @@ class AudioViewModel @Inject constructor(
             repository.renameObject(id, newName)
         }
     }
+
+    suspend fun getData(id: String): ByteArray? = repository.getDecryptedData(id).getOrNull()
 
     private fun getFileName(uri: Uri): String {
         return uri.lastPathSegment ?: "audio_${System.currentTimeMillis()}.mp3"
