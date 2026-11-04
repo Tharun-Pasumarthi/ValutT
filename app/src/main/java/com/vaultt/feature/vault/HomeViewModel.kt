@@ -8,12 +8,15 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.map
 import javax.inject.Inject
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     private val repository: VaultRepository
 ) : ViewModel() {
+    val folderCount = repository.getFolders().map { it.size }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
 
     val photoCount: StateFlow<Int> = repository.getCountByType(VaultObjectType.PHOTO.name)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
