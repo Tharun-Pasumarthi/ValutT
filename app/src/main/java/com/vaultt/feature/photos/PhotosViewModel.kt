@@ -18,8 +18,11 @@ import javax.inject.Inject
 @HiltViewModel
 class PhotosViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val repository: VaultRepository
+    val repository: VaultRepository,
+    val vaultPrefs: com.vaultt.core.security.VaultPrefs
 ) : ViewModel() {
+
+    fun getZoomSensitivity(): Float = vaultPrefs.getZoomSensitivity()
 
     val photos: StateFlow<List<VaultObject>> = repository.getVaultObjectsByType(VaultObjectType.PHOTO.name)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -33,7 +36,7 @@ class PhotosViewModel @Inject constructor(
     private val _deleteIntentSender = MutableSharedFlow<IntentSender>()
     val deleteIntentSender = _deleteIntentSender.asSharedFlow()
 
-    fun importPhotos(uris: List<Uri>, force: Boolean = false) {
+    fun importPhotos(uris: List<Uri>, force: Boolean = false, folderId: String? = null) {
         viewModelScope.launch {
             _isImporting.value = true
             val duplicates = mutableListOf<Pair<Uri, String>>()
@@ -43,7 +46,7 @@ class PhotosViewModel @Inject constructor(
                 val name = getFileName(uri)
                 val size = getFileSize(uri)
                 
-                val result = repository.importPhoto(uri, name, size, force)
+                val result = repository.importPhoto(uri, name, size, force, folderId)
                 result.onSuccess { importResult ->
                     if (importResult.isDuplicate && !force) {
                         duplicates.add(uri to (importResult.name ?: name))
@@ -85,6 +88,10 @@ class PhotosViewModel @Inject constructor(
         viewModelScope.launch {
             repository.moveToTrash(id)
         }
+    }
+
+    fun renameObject(id: String, name: String) {
+        viewModelScope.launch { repository.renameObject(id, name) }
     }
 
     suspend fun getThumbnail(id: String): ByteArray? {
