@@ -6,6 +6,8 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.vaultt.core.security.VaultPrefs
+import com.vaultt.core.util.MediaStoreDeletionHelper
 import com.vaultt.domain.model.VaultObject
 import com.vaultt.domain.model.VaultObjectType
 import com.vaultt.domain.repository.VaultRepository
@@ -18,7 +20,8 @@ import javax.inject.Inject
 @HiltViewModel
 class VideosViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val repository: VaultRepository
+    val repository: VaultRepository,
+    val vaultPrefs: VaultPrefs
 ) : ViewModel() {
 
     val videos: StateFlow<List<VaultObject>> = repository.getVaultObjectsByType(VaultObjectType.VIDEO.name)
@@ -30,10 +33,15 @@ class VideosViewModel @Inject constructor(
     private val _duplicateAlert = MutableStateFlow<List<Pair<Uri, String>>>(emptyList())
     val duplicateAlert = _duplicateAlert.asStateFlow()
 
-    private val _deleteIntentSender = MutableSharedFlow<IntentSender>()
+    private val _deletePromptUris = MutableStateFlow<List<Uri>>(emptyList())
+    val deletePromptUris = _deletePromptUris.asStateFlow()
+
+    private val _deleteIntentSender = MutableSharedFlow<IntentSender>(replay = 1)
     val deleteIntentSender = _deleteIntentSender.asSharedFlow()
 
-    fun importVideos(uris: List<Uri>, force: Boolean = false) {
+    fun isDeleteOriginalsEnabled(): Boolean = vaultPrefs.isDeleteOriginalsEnabled()
+
+    fun importVideos(uris: List<Uri>, force: Boolean = false, folderId: String? = null) {
         viewModelScope.launch {
             _isImporting.value = true
             val duplicates = mutableListOf<Pair<Uri, String>>()
@@ -43,7 +51,7 @@ class VideosViewModel @Inject constructor(
                 val name = getFileName(uri)
                 val size = getFileSize(uri)
                 
-                val result = repository.importMediaStreaming(uri, name, size, VaultObjectType.VIDEO.name, force)
+                val result = repository.importMediaStreaming(uri, name, size, VaultObjectType.VIDEO.name, force, folderId)
                 result.onSuccess { importResult ->
                     if (importResult.isDuplicate && !force) {
                         duplicates.add(uri to (importResult.name ?: name))
@@ -57,8 +65,32 @@ class VideosViewModel @Inject constructor(
                 _duplicateAlert.value = duplicates
             }
 
+            if (successfullyImportedUris.isNotEmpty()) {
+                if (vaultPrefs.isDeleteOriginalsEnabled()) {
+                    requestDeleteOriginals(successfullyImportedUris)
+                } else {
+                    _deletePromptUris.value = successfullyImportedUris
+                }
+            }
+
             _isImporting.value = false
         }
+    }
+
+    fun requestDeleteOriginals(uris: List<Uri>) {
+        viewModelScope.launch {
+            MediaStoreDeletionHelper.requestDeleteOriginals(context, uris) { intentSender ->
+                _deleteIntentSender.emit(intentSender)
+            }
+        }
+    }
+
+    fun confirmDeleteOriginals(uris: List<Uri>) {
+        requestDeleteOriginals(uris)
+    }
+
+    fun clearDeletePrompt() {
+        _deletePromptUris.value = emptyList()
     }
 
     fun continueImportingDuplicates() {
@@ -78,6 +110,12 @@ class VideosViewModel @Inject constructor(
             repository.moveToTrash(id)
         }
     }
+
+    fun renameObject(id: String, name: String) {
+        viewModelScope.launch { repository.renameObject(id, name) }
+    }
+
+    suspend fun getData(id: String): ByteArray? = repository.getDecryptedData(id).getOrNull()
 
     private fun getFileName(uri: Uri): String {
         var name = "video_${System.currentTimeMillis()}.mp4"
